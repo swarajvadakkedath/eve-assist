@@ -861,6 +861,11 @@ class TestSystemIntegration:
             "content.search_code", "content.extract_symbols",
             "content.list_functions", "content.list_classes",
             "content.count_lines", "content.detect_language",
+            "office.read_pdf", "office.search_pdf", "office.extract_pdf_metadata",
+            "office.split_pdf", "office.merge_pdf",
+            "office.read_docx", "office.write_docx", "office.extract_headings",
+            "office.list_sheets", "office.read_sheet", "office.write_sheet",
+            "office.read_presentation", "office.list_slides", "office.extract_notes",
         }
         missing = expected - tool_ids
         assert not missing, f"Missing tools: {missing}"
@@ -878,6 +883,7 @@ class TestSystemIntegration:
         assert "developer" in categories
         assert "git" in categories
         assert "content" in categories
+        assert "office" in categories
 
     async def test_tool_contracts_have_permission_levels(self, initialized_tools):
         """All tools should have valid permission levels."""

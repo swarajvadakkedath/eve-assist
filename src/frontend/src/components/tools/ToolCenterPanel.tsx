@@ -34,6 +34,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   developer: "💻",
   git: "🔀",
   content: "📝",
+  office: "📄",
   system: "⚙",
   general: "🔧",
 };
@@ -46,6 +47,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   developer: "Developer Toolkit",
   git: "Git Toolkit",
   content: "Content Toolkit",
+  office: "Office Documents",
   system: "System",
   general: "General",
 };
@@ -64,7 +66,7 @@ const PERMISSION_COLORS: Record<number, string> = {
   3: "#ef4444",
 };
 
-const CATEGORY_ORDER = ["filesystem", "search", "clipboard", "archive", "developer", "git", "content", "system", "general"];
+const CATEGORY_ORDER = ["filesystem", "search", "clipboard", "archive", "developer", "git", "content", "office", "system", "general"];
 
 export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
   const [categories, setCategories] = useState<Record<string, ToolInfo[]>>({});
@@ -225,11 +227,18 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
      "content.detect_language", "content.parse_markdown",
      "content.markdown_outline", "content.extract_links",
      "content.search_code", "content.search_in_directory",
-     "content.validate_json", "content.validate_yaml", "content.validate_xml"].includes(toolId);
+     "content.validate_json", "content.validate_yaml", "content.validate_xml",
+     "office.read_pdf", "office.search_pdf", "office.extract_pdf_metadata",
+     "office.read_docx", "office.extract_headings",
+     "office.read_sheet", "office.list_sheets",
+     "office.read_presentation", "office.list_slides", "office.extract_notes",
+    ].includes(toolId);
 
   const isContentWriteTool = (toolId: string) =>
     ["content.write_text", "content.append_text", "content.replace_text",
-     "content.write_json", "content.write_csv", "content.batch_replace"].includes(toolId);
+     "content.write_json", "content.write_csv", "content.batch_replace",
+     "office.split_pdf", "office.merge_pdf", "office.write_docx", "office.write_sheet",
+    ].includes(toolId);
 
   const sortedCategories = Object.entries(categories).sort(
     ([a], [b]) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b)
