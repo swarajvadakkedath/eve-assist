@@ -64,6 +64,8 @@ async def initialized_tools(tool_manager, event_bus, permission_manager):
         "process.start",
         "environment.set_process",
         "wsl.run_command",
+        "git.create_branch", "git.checkout_branch",
+        "git.commit", "git.create_tag",
     ]
     for tid in workspace_tools:
         result = await permission_manager.request_permission(tid, PermissionLevel.WORKSPACE, action=tid)
@@ -824,7 +826,7 @@ class TestSystemIntegration:
     """Validate all system tools register and list correctly."""
 
     async def test_all_tools_registered(self, initialized_tools):
-        """All system tools should be registered (27 base + 17 developer)."""
+        """All system tools should be registered (27 base + 17 developer + 23 git)."""
         all_tools = await initialized_tools.list_tools()
         tool_ids = {t.id for t in all_tools}
 
@@ -843,6 +845,13 @@ class TestSystemIntegration:
             "process.restart", "process.info",
             "environment.list", "environment.get", "environment.set_process",
             "wsl.detect", "wsl.list_distributions", "wsl.run_command",
+            "git.discover_repositories", "git.current_repository", "git.repository_info",
+            "git.status", "git.staged_files", "git.modified_files", "git.untracked_files", "git.diff",
+            "git.list_branches", "git.create_branch", "git.checkout_branch", "git.delete_branch",
+            "git.commit", "git.commit_log", "git.show_commit", "git.amend_last_commit",
+            "git.fetch", "git.pull", "git.push",
+            "git.list_tags", "git.create_tag", "git.checkout_tag",
+            "git.cancel_operation",
         }
         missing = expected - tool_ids
         assert not missing, f"Missing tools: {missing}"
@@ -858,6 +867,7 @@ class TestSystemIntegration:
         assert "clipboard" in categories or "clipboard" in str(categories)
         assert "archive" in categories
         assert "developer" in categories
+        assert "git" in categories
 
     async def test_tool_contracts_have_permission_levels(self, initialized_tools):
         """All tools should have valid permission levels."""

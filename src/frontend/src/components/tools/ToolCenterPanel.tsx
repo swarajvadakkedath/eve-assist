@@ -32,6 +32,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   clipboard: "📋",
   archive: "📦",
   developer: "💻",
+  git: "🔀",
   system: "⚙",
   general: "🔧",
 };
@@ -42,6 +43,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   clipboard: "Clipboard Toolkit",
   archive: "Archive Toolkit",
   developer: "Developer Toolkit",
+  git: "Git Toolkit",
   system: "System",
   general: "General",
 };
@@ -60,7 +62,7 @@ const PERMISSION_COLORS: Record<number, string> = {
   3: "#ef4444",
 };
 
-const CATEGORY_ORDER = ["filesystem", "search", "clipboard", "archive", "developer", "system", "general"];
+const CATEGORY_ORDER = ["filesystem", "search", "clipboard", "archive", "developer", "git", "system", "general"];
 
 export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
   const [categories, setCategories] = useState<Record<string, ToolInfo[]>>({});
