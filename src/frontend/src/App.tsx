@@ -1,0 +1,107 @@
+import { useState, useEffect } from "react";
+import ChatWindow from "./components/chat/ChatWindow";
+import CommandPalette from "./components/desktop/CommandPalette";
+import SettingsPanel from "./components/desktop/SettingsPanel";
+import PluginManagerPanel from "./components/plugins/PluginManagerPanel";
+import ToolCenterPanel from "./components/tools/ToolCenterPanel";
+import StatusIndicator from "./components/desktop/StatusIndicator";
+import NotificationCenter from "./components/desktop/NotificationCenter";
+
+function App() {
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setCommandOpen((v) => !v);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === ",") {
+        e.preventDefault();
+        setSettingsOpen((v) => !v);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "p") {
+        e.preventDefault();
+        setPluginsOpen((v) => !v);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "t") {
+        e.preventDefault();
+        setToolsOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const handleNavigate = (action: string, payload?: string) => {
+    switch (action) {
+      case "settings":
+        setSettingsOpen(true);
+        break;
+      case "plugins":
+        setPluginsOpen(true);
+        break;
+      case "theme":
+        setTheme((t) => (t === "dark" ? "light" : "dark"));
+        break;
+      case "new_conversation":
+        window.dispatchEvent(new CustomEvent("aios:new-conversation"));
+        break;
+      case "open_conversation":
+        if (payload) {
+          window.dispatchEvent(new CustomEvent("aios:open-conversation", { detail: { id: payload } }));
+        }
+        break;
+      case "clear":
+        window.dispatchEvent(new CustomEvent("aios:clear-chat"));
+        break;
+      case "help":
+        window.dispatchEvent(new CustomEvent("aios:help"));
+        break;
+      case "export":
+        window.dispatchEvent(new CustomEvent("aios:export"));
+        break;
+      case "search":
+        window.dispatchEvent(new CustomEvent("aios:search"));
+        break;
+      case "tools":
+        setToolsOpen(true);
+        break;
+    }
+  };
+
+  return (
+    <div className={`app ${theme}`}>
+      <div className="app-header">
+        <StatusIndicator />
+        <div className="app-header-actions">
+          <NotificationCenter />
+          <button className="btn-icon" onClick={() => setToolsOpen(true)} title="Tool Center (Ctrl+T)">
+            🛠
+          </button>
+          <button className="btn-icon" onClick={() => setPluginsOpen(true)} title="Plugin Manager (Ctrl+P)">
+            ■
+          </button>
+          <button className="btn-icon" onClick={() => setCommandOpen(true)} title="Commands (Ctrl+K)">
+            ⌘
+          </button>
+          <button className="btn-icon" onClick={() => setSettingsOpen(true)} title="Settings (Ctrl+,)">
+            ⚙
+          </button>
+        </div>
+      </div>
+      <ChatWindow />
+      {commandOpen && (
+        <CommandPalette onClose={() => setCommandOpen(false)} onNavigate={handleNavigate} />
+      )}
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+      {toolsOpen && <ToolCenterPanel onClose={() => setToolsOpen(false)} />}
+      {pluginsOpen && <PluginManagerPanel onClose={() => setPluginsOpen(false)} />}
+    </div>
+  );
+}

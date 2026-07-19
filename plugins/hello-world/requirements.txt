@@ -1,0 +1,2 @@
+# No external dependencies required
+# aios-sdk>=1.0.0

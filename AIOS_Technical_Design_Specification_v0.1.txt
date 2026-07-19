@@ -1,0 +1,153 @@
+AIOS Technical Design Specification (TDS) v0.1
+
+Purpose
+
+This document is the engineering blueprint for AIOS. It defines how the
+system is built, how modules communicate, and the rules every
+implementation must follow.
+
+High-Level Architecture
+
+User ↓ UI Layer (Desktop, Overlay, Command Palette) ↓ Eve (Conversation
+Layer) ↓ Planner ↓ AI Router ↓ Permission Manager ↓ Tool Manager ↓
+Windows Adapter ↓ Windows APIs / Applications
+
+Supporting Services: - Memory Service - Context Service - Event Bus -
+Plugin Manager - Logger - Settings Manager
+
+Core Modules
+
+UI Layer
+
+Responsibilities: - Desktop interface - Chat - Voice controls - Command
+palette - Settings No business logic allowed.
+
+Eve
+
+Responsibilities: - Personality - Conversation - Voice - Chat -
+Situational communication modes
+
+Planner
+
+Responsibilities: - Break goals into executable tasks - Select
+skills/tools - Validate completion
+
+AI Router
+
+Responsibilities: - Choose AI provider by task - Retry/fallback -
+Unified response format
+
+Permission Manager
+
+Responsibilities: - Classify action risk - Request confirmation for
+sensitive actions - Enforce workspace restrictions
+
+Tool Manager
+
+Responsibilities: - Register tools - Execute tools - Return standardized
+results - Never call Windows directly from AI logic
+
+Windows Adapter
+
+Responsibilities: - Launch apps - Clipboard - Notifications - File
+access - Window management
+
+Memory Service
+
+Stores: - Conversations - Preferences - Projects - Workflows
+
+Context Service
+
+Tracks: - Active window - Open files - Current project - Running apps
+
+Vision Service
+
+-   Screenshot
+-   OCR
+-   UI analysis
+
+Plugin Manager
+
+Loads plugins dynamically. Each plugin defines: - Metadata -
+Permissions - Events - Tools
+
+Event Bus
+
+Examples: VOICE_RECEIVED CHAT_RECEIVED TASK_CREATED TASK_COMPLETED
+TOOL_REQUESTED TOOL_COMPLETED WINDOW_CHANGED PROJECT_CHANGED
+ERROR_OCCURRED
+
+Modules communicate only through events or defined service interfaces.
+
+Tool Contract
+
+Each tool contains: - id - name - description - required_permissions -
+input_schema - output_schema - execute()
+
+Plugin Layout
+
+plugins/ plugin_name/ manifest.json tools/ handlers/ assets/
+
+AI Provider Interface
+
+Every provider must expose: - chat() - vision() - embeddings()
+(optional) - health_check()
+
+Providers must be interchangeable.
+
+Data Storage
+
+SQLite Tables: - conversations - memories - preferences - projects -
+events - plugins
+
+Security Rules
+
+-   Never modify Windows.
+-   Never execute destructive commands without confirmation.
+-   Restrict workspace editing to approved folders.
+-   Log all tool executions.
+
+Coding Rules
+
+-   Single responsibility per module.
+-   Dependency injection where practical.
+-   Strong typing.
+-   Comprehensive logging.
+-   Unit tests for core modules.
+-   Integration tests for workflows.
+-   No hardcoded providers or paths.
+
+API Boundaries
+
+Frontend ↔ Backend: - REST/WebSocket via FastAPI
+
+Backend Services: - Event-driven communication
+
+Tools: - Access only through Tool Manager
+
+Development Order
+
+1.  Foundation
+2.  UI
+3.  AI Router
+4.  Planner
+5.  Tool Manager
+6.  Permission Manager
+7.  Windows Adapter
+8.  Memory
+9.  Context
+10. Vision
+11. Browser
+12. Voice
+13. Plugins
+14. Optimization
+
+Definition of Done
+
+Every module must include: - Documentation - Tests - Logging - Error
+handling - Configuration - Demo usage
+
+Guiding Principle
+
+AIOS is an intelligent operating layer. Windows remains untouched. Eve
+assists through context-aware, permission-based automation.

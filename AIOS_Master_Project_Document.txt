@@ -1,0 +1,350 @@
+AIOS Project Master Document
+
+Project Identity
+
+-   Platform: AIOS
+-   Assistant: Eve
+
+Mission
+
+Build an intelligent operating layer for Windows that enables natural
+interaction with the computer through conversation, contextual
+awareness, and safe automation—without modifying the underlying
+operating system.
+
+------------------------------------------------------------------------
+
+Vision
+
+AIOS is not a chatbot.
+
+AIOS is not another Windows assistant.
+
+AIOS is a software layer between the user and Windows.
+
+User ↓ AIOS (Eve + Intelligence) ↓ Windows ↓ Hardware
+
+Everything goes through AIOS. Windows remains untouched.
+
+------------------------------------------------------------------------
+
+Core Principles
+
+1.  Never modify Windows.
+
+    -   No system patches
+    -   No Explorer replacement
+    -   No DLL injection
+    -   No registry hacks
+
+2.  AI Agnostic
+
+    -   Any LLM can be swapped.
+
+3.  Provider Agnostic
+
+    -   OpenRouter
+    -   Gemini
+    -   NVIDIA NIM
+    -   Groq
+    -   Future providers
+
+4.  Modular Architecture
+
+5.  Safe Automation Every action: Eve → Planner → Permission Manager →
+    Tool Manager → Windows
+
+6.  Human First Sensitive actions always require confirmation.
+
+------------------------------------------------------------------------
+
+Eve
+
+Default assistant personality:
+
+-   Female voice
+-   Calm
+-   Professional
+-   Technical
+-   Intelligent
+-   Concise
+
+Examples
+
+Instead of: “Sure! 😊”
+
+Use: “Understood.”
+
+Instead of: “Done!”
+
+Use: “Completed.”
+
+------------------------------------------------------------------------
+
+Interaction Modes
+
+Voice
+
+Hands-free interaction.
+
+Chat
+
+Full ChatGPT-like experience.
+
+Hybrid
+
+Voice + Chat + Screenshot + File Upload + Drag & Drop.
+
+------------------------------------------------------------------------
+
+Situational Communication Modes
+
+-   Normal
+-   Developer
+-   Silent
+-   Meeting
+-   Focus
+
+------------------------------------------------------------------------
+
+Workspace Awareness
+
+Eve understands:
+
+-   Active project
+-   Open applications
+-   Current files
+-   Current task
+
+------------------------------------------------------------------------
+
+Memory
+
+Stores:
+
+-   Conversations
+-   Projects
+-   Preferences
+-   Workflows
+-   Coding style
+
+------------------------------------------------------------------------
+
+AI Router
+
+Different models for:
+
+-   Coding
+-   Vision
+-   Reasoning
+-   Planning
+
+------------------------------------------------------------------------
+
+Permission Levels
+
+Level 0 Read only
+
+Level 1 Open apps Read files Clipboard
+
+Level 2 Workspace editing Git Code
+
+Level 3 Sensitive actions Delete PowerShell Kill process
+
+Always confirm.
+
+------------------------------------------------------------------------
+
+Skills
+
+-   Conversation
+-   Planning
+-   Coding
+-   Vision
+-   Automation
+-   Browser
+-   Research
+-   Memory
+-   UI Design
+-   Learning
+
+------------------------------------------------------------------------
+
+Plugin System
+
+Plugins:
+
+-   VS Code
+-   Chrome
+-   Firefox
+-   GitHub
+-   Figma
+-   Photoshop
+-   Spotify
+-   Terminal
+-   Notion
+
+Each plugin exposes:
+
+-   Tools
+-   Permissions
+-   Events
+-   Configuration
+
+------------------------------------------------------------------------
+
+Product Requirements Document (PRD)
+
+Goal
+
+Create an AI Operating Layer that integrates with Windows while leaving
+the operating system untouched.
+
+Functional Requirements
+
+-   Voice
+-   Chat
+-   Hybrid mode
+-   Planning engine
+-   AI Router
+-   Memory
+-   Screen understanding
+-   Browser automation
+-   Desktop automation
+-   Tool execution
+-   Context awareness
+-   Multi-provider AI
+-   Plugin system
+-   Developer tools
+-   Settings
+-   Notifications
+-   Logging
+
+Non-functional Requirements
+
+-   Fast startup
+-   Low memory usage
+-   Modular
+-   Secure
+-   Extensible
+-   Testable
+-   Production ready
+
+------------------------------------------------------------------------
+
+System Architecture
+
+UI Layer - Desktop - Overlay - Command Palette - Settings
+
+Eve - Voice - Chat - Personality - Conversation
+
+Core - Planner - AI Router - Memory - Context - Permission - Event Bus -
+Logger
+
+Skills - Coding - Vision - Browser - Automation - Research - UI Design -
+Learning
+
+Tool Manager
+
+Plugin Manager
+
+Windows Adapter
+
+------------------------------------------------------------------------
+
+Technology Decisions
+
+Frontend - React - TypeScript - Tailwind - Tauri
+
+Backend - Python - FastAPI - SQLite - Playwright - PyAutoGUI - psutil
+
+Development - OpenCode (development assistant only) - Git
+
+Reason: Lightweight, modular, maintainable, cross-provider architecture.
+
+------------------------------------------------------------------------
+
+Development Roadmap
+
+Phase 1 Foundation
+
+Phase 2 Eve
+
+Phase 3 Desktop Control
+
+Phase 4 Intelligence
+
+Phase 5 Vision
+
+Phase 6 Browser
+
+Phase 7 Developer Tools
+
+Phase 8 Plugin System
+
+Phase 9 AIOS v1.0
+
+------------------------------------------------------------------------
+
+Folder Structure
+
+AIOS/ docs/ src/ frontend/ backend/ core/ eve/ planner/ router/ memory/
+context/ permission/ tools/ plugins/ windows/ vision/ browser/ skills/
+config/ tests/ scripts/ assets/ logs/
+
+------------------------------------------------------------------------
+
+Coding Standards
+
+-   One responsibility per module.
+-   No hardcoded AI providers.
+-   No business logic in UI.
+-   All OS actions through Tool Manager.
+-   Sensitive actions through Permission Manager.
+-   Configuration-driven.
+-   Comprehensive logging.
+-   Unit and integration testing.
+-   Clear documentation.
+
+------------------------------------------------------------------------
+
+Module-by-Module Plan
+
+Sprint 1 Foundation
+
+Sprint 2 Eve Interface
+
+Sprint 3 AI Router
+
+Sprint 4 Planner
+
+Sprint 5 Tool Framework
+
+Sprint 6 Windows Integration
+
+Sprint 7 Memory & Context
+
+Sprint 8 Vision
+
+Sprint 9 Browser
+
+Sprint 10 Developer Tools
+
+Sprint 11 Voice
+
+Sprint 12 Plugin Platform
+
+Sprint 13 AIOS v1.0
+
+------------------------------------------------------------------------
+
+Final Guiding Principle
+
+AIOS should feel like a trusted teammate, not a command executor.
+
+Eve should understand context, explain actions, ask before sensitive
+operations, and seamlessly support voice, chat, screenshots, files, and
+automation in one continuous workflow.
+
+This document serves as the initial blueprint and single source of truth
+for AIOS.

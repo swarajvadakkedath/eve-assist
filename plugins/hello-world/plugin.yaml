@@ -1,0 +1,56 @@
+id: hello-world
+name: Hello World
+version: 1.0.0
+sdk_version: 1.0.0
+author: AIOS SDK
+description: A minimal AIOS plugin example demonstrating the Plugin SDK
+license: MIT
+homepage: https://aios.ai/plugins/hello-world
+repository: https://github.com/aios/hello-world
+platforms:
+  - all
+capabilities:
+  - id: hello.say_hello
+    name: Say Hello
+    description: Returns a friendly greeting
+    permission_level: 0
+    parameters:
+      name:
+        type: string
+        description: Name to greet
+        required: false
+    returns:
+      type: string
+      description: The greeting message
+  - id: hello.echo
+    name: Echo
+    description: Echoes back the input
+    permission_level: 0
+    parameters:
+      message:
+        type: string
+        description: Message to echo
+        required: true
+    returns:
+      type: string
+      description: The echoed message
+permissions:
+  - filesystem.read
+  - eventbus.publish
+dependencies: {}
+entry_point: plugin.py
+minimum_aios_version: 1.0.0
+icon: icon.png
+tags:
+  - example
+  - demo
+  - hello-world
+category: examples
+documentation: README.md
+configuration_schema:
+  type: object
+  properties:
+    greeting:
+      type: string
+      default: "Hello"
+      description: The greeting prefix to use
