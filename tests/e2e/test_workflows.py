@@ -66,6 +66,7 @@ async def initialized_tools(tool_manager, event_bus, permission_manager):
         "wsl.run_command",
         "git.create_branch", "git.checkout_branch",
         "git.commit", "git.create_tag",
+        "download.file", "upload.file", "upload.multipart",
     ]
     for tid in workspace_tools:
         result = await permission_manager.request_permission(tid, PermissionLevel.WORKSPACE, action=tid)
@@ -826,7 +827,7 @@ class TestSystemIntegration:
     """Validate all system tools register and list correctly."""
 
     async def test_all_tools_registered(self, initialized_tools):
-        """All system tools should be registered (27 base + 17 developer + 23 git + 24 content)."""
+        """All system tools should be registered (27 base + 17 developer + 23 git + 24 content + 14 office + 22 network)."""
         all_tools = await initialized_tools.list_tools()
         tool_ids = {t.id for t in all_tools}
 
@@ -866,6 +867,13 @@ class TestSystemIntegration:
             "office.read_docx", "office.write_docx", "office.extract_headings",
             "office.list_sheets", "office.read_sheet", "office.write_sheet",
             "office.read_presentation", "office.list_slides", "office.extract_notes",
+            "http.get", "http.head", "http.post", "http.put", "http.patch", "http.delete",
+            "download.file", "download.cancel", "download.status",
+            "network.verify_checksum",
+            "upload.file", "upload.multipart",
+            "api.send_json", "api.send_form", "api.build_query",
+            "api.set_headers", "api.bearer_auth", "api.basic_auth",
+            "network.dns_lookup", "network.ping_host", "network.check_port", "network.validate_url",
         }
         missing = expected - tool_ids
         assert not missing, f"Missing tools: {missing}"
@@ -884,6 +892,7 @@ class TestSystemIntegration:
         assert "git" in categories
         assert "content" in categories
         assert "office" in categories
+        assert "network" in categories
 
     async def test_tool_contracts_have_permission_levels(self, initialized_tools):
         """All tools should have valid permission levels."""

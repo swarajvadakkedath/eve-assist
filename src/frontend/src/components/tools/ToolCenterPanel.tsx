@@ -35,6 +35,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   git: "🔀",
   content: "📝",
   office: "📄",
+  network: "🌐",
   system: "⚙",
   general: "🔧",
 };
@@ -48,6 +49,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   git: "Git Toolkit",
   content: "Content Toolkit",
   office: "Office Documents",
+  network: "Network Toolkit",
   system: "System",
   general: "General",
 };
@@ -66,7 +68,7 @@ const PERMISSION_COLORS: Record<number, string> = {
   3: "#ef4444",
 };
 
-const CATEGORY_ORDER = ["filesystem", "search", "clipboard", "archive", "developer", "git", "content", "office", "system", "general"];
+const CATEGORY_ORDER = ["filesystem", "search", "clipboard", "archive", "developer", "git", "content", "office", "network", "system", "general"];
 
 export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
   const [categories, setCategories] = useState<Record<string, ToolInfo[]>>({});
@@ -134,6 +136,22 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
     if (inputs.pattern) params.pattern = inputs.pattern;
     if (inputs.source) params.source = inputs.source;
     if (inputs.content) params.content = inputs.content;
+    if (inputs.url) params.url = inputs.url;
+    if (inputs.download_id) params.download_id = inputs.download_id;
+    if (inputs.expected) params.expected = inputs.expected;
+    if (inputs.base_url) params.base_url = inputs.base_url;
+    if (inputs.params) {
+      try { params.params = JSON.parse(inputs.params); } catch { params.params = inputs.params; }
+    }
+    if (inputs.headers) {
+      try { params.headers = JSON.parse(inputs.headers); } catch { params.headers = inputs.headers; }
+    }
+    if (inputs.token) params.token = inputs.token;
+    if (inputs.username) params.username = inputs.username;
+    if (inputs.password) params.password = inputs.password;
+    if (inputs.hostname) params.hostname = inputs.hostname;
+    if (inputs.port) params.port = parseInt(inputs.port, 10);
+    if (inputs.algorithm) params.algorithm = inputs.algorithm;
 
     setExecuting(toolId);
     setExecuteResult(null);
@@ -238,6 +256,21 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
     ["content.write_text", "content.append_text", "content.replace_text",
      "content.write_json", "content.write_csv", "content.batch_replace",
      "office.split_pdf", "office.merge_pdf", "office.write_docx", "office.write_sheet",
+    ].includes(toolId);
+
+  const isNetworkReadTool = (toolId: string) =>
+    ["http.get", "http.head",
+     "download.status", "download.cancel",
+     "network.verify_checksum",
+     "api.build_query", "api.set_headers", "api.bearer_auth", "api.basic_auth",
+     "network.dns_lookup", "network.ping_host", "network.check_port", "network.validate_url",
+    ].includes(toolId);
+
+  const isNetworkWriteTool = (toolId: string) =>
+    ["http.post", "http.put", "http.patch", "http.delete",
+     "download.file",
+     "upload.file", "upload.multipart",
+     "api.send_json", "api.send_form",
     ].includes(toolId);
 
   const sortedCategories = Object.entries(categories).sort(
@@ -455,6 +488,137 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
                             </div>
                           )}
 
+                          {isNetworkReadTool(tool.id) && (
+                            <div className="tool-card-actions tool-card-inputs">
+                              <div className="cmd-input-row">
+                                {(tool.id === "http.get" || tool.id === "http.head") && (
+                                  <input
+                                    type="text"
+                                    className="cmd-input"
+                                    placeholder="URL..."
+                                    value={(contentInputs[tool.id] || {}).url || ""}
+                                    onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], url: e.target.value } }))}
+                                  />
+                                )}
+                                {(tool.id === "download.status" || tool.id === "download.cancel") && (
+                                  <input
+                                    type="text"
+                                    className="cmd-input"
+                                    placeholder="Download ID..."
+                                    value={(contentInputs[tool.id] || {}).download_id || ""}
+                                    onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], download_id: e.target.value } }))}
+                                  />
+                                )}
+                                {(tool.id === "network.verify_checksum") && (
+                                  <>
+                                    <input
+                                      type="text"
+                                      className="cmd-input"
+                                      placeholder="File path..."
+                                      value={(contentInputs[tool.id] || {}).path || ""}
+                                      onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], path: e.target.value } }))}
+                                    />
+                                    <input
+                                      type="text"
+                                      className="cmd-input"
+                                      placeholder="Expected hash..."
+                                      value={(contentInputs[tool.id] || {}).expected || ""}
+                                      onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], expected: e.target.value } }))}
+                                    />
+                                  </>
+                                )}
+                                {(tool.id === "api.build_query") && (
+                                  <>
+                                    <input
+                                      type="text"
+                                      className="cmd-input"
+                                      placeholder="Base URL..."
+                                      value={(contentInputs[tool.id] || {}).base_url || ""}
+                                      onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], base_url: e.target.value } }))}
+                                    />
+                                    <input
+                                      type="text"
+                                      className="cmd-input"
+                                      placeholder='Params ({"key":"val"})...'
+                                      value={(contentInputs[tool.id] || {}).params || ""}
+                                      onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], params: e.target.value } }))}
+                                    />
+                                  </>
+                                )}
+                                {(tool.id === "api.set_headers") && (
+                                  <input
+                                    type="text"
+                                    className="cmd-input"
+                                    placeholder='Headers ({"X-Key":"Val"})...'
+                                    value={(contentInputs[tool.id] || {}).headers || ""}
+                                    onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], headers: e.target.value } }))}
+                                  />
+                                )}
+                                {(tool.id === "api.bearer_auth") && (
+                                  <input
+                                    type="text"
+                                    className="cmd-input"
+                                    placeholder="Bearer token..."
+                                    value={(contentInputs[tool.id] || {}).token || ""}
+                                    onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], token: e.target.value } }))}
+                                  />
+                                )}
+                                {(tool.id === "api.basic_auth") && (
+                                  <>
+                                    <input
+                                      type="text"
+                                      className="cmd-input"
+                                      placeholder="Username..."
+                                      value={(contentInputs[tool.id] || {}).username || ""}
+                                      onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], username: e.target.value } }))}
+                                    />
+                                    <input
+                                      type="password"
+                                      className="cmd-input"
+                                      placeholder="Password..."
+                                      value={(contentInputs[tool.id] || {}).password || ""}
+                                      onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], password: e.target.value } }))}
+                                    />
+                                  </>
+                                )}
+                                {(tool.id === "network.dns_lookup" || tool.id === "network.ping_host" || tool.id === "network.check_port") && (
+                                  <input
+                                    type="text"
+                                    className="cmd-input"
+                                    placeholder="Hostname..."
+                                    value={(contentInputs[tool.id] || {}).hostname || ""}
+                                    onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], hostname: e.target.value } }))}
+                                  />
+                                )}
+                                {(tool.id === "network.check_port") && (
+                                  <input
+                                    type="number"
+                                    className="cmd-input"
+                                    placeholder="Port..."
+                                    value={(contentInputs[tool.id] || {}).port || ""}
+                                    onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], port: e.target.value } }))}
+                                  />
+                                )}
+                                {(tool.id === "network.validate_url") && (
+                                  <input
+                                    type="text"
+                                    className="cmd-input"
+                                    placeholder="URL to validate..."
+                                    value={(contentInputs[tool.id] || {}).url || ""}
+                                    onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], url: e.target.value } }))}
+                                  />
+                                )}
+                                <button
+                                  className="btn btn-sm btn-primary"
+                                  onClick={() => handleContentExecute(tool.id)}
+                                  disabled={executing === tool.id}
+                                >
+                                  {executing === tool.id ? "..." : "Run"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
                           {isContentWriteTool(tool.id) && (
                             <div className="tool-card-actions">
                               <button
@@ -467,7 +631,19 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
                             </div>
                           )}
 
-                          {!isTerminalTool(tool.id) && !isCancelTool(tool.id) && !isContentReadTool(tool.id) && !isContentWriteTool(tool.id) && (
+                          {isNetworkWriteTool(tool.id) && (
+                            <div className="tool-card-actions">
+                              <button
+                                className="btn btn-sm btn-warning"
+                                onClick={() => handleExecute(tool.id)}
+                                disabled={executing === tool.id}
+                              >
+                                {executing === tool.id ? "..." : "Execute (requires confirmation)"}
+                              </button>
+                            </div>
+                          )}
+
+                          {!isTerminalTool(tool.id) && !isCancelTool(tool.id) && !isContentReadTool(tool.id) && !isContentWriteTool(tool.id) && !isNetworkReadTool(tool.id) && !isNetworkWriteTool(tool.id) && (
                             <div className="tool-card-actions">
                               <button
                                 className="btn btn-sm btn-primary"
