@@ -455,8 +455,10 @@ class TestExecutionEngineFlow:
         assert execution_engine._events is not None
         assert execution_engine._repository is not None
 
-    async def test_start_execution_with_planner(self, execution_engine):
+    async def test_start_execution_with_planner(self, execution_engine, initialized_tools, capability_registry):
         """Engine should create execution and attempt planning."""
+        # The planner needs a capability registry to generate valid steps
+        execution_engine._planner_adapter._planner._capability_registry = capability_registry
         execution = await execution_engine.start_execution(
             objective="test workflow",
             conversation_id="conv-test-1",
@@ -467,12 +469,9 @@ class TestExecutionEngineFlow:
         assert execution.id is not None
         assert execution.objective == "test workflow"
 
-        # Wait briefly for execution to start processing
-        await asyncio.sleep(0.1)
+        # Wait briefly for execution to complete
+        await asyncio.sleep(0.5)
 
-        # Since planner is a stub (returns "request.process" step),
-        # execution should fail with "Tool not found: request.process"
-        # But the engine state will be visible
         updated = await execution_engine.get_execution(execution.id)
         assert updated is not None
 

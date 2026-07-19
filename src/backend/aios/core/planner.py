@@ -7,6 +7,49 @@ from uuid import uuid4
 from aios.core.capability_registry import CapabilityRegistry
 
 
+MIN_CAPABILITY_SCORE = 0.3
+
+_step_order = {
+    # Low-level filesystem / search first
+    "search": 10, "search.files": 10, "search.by_extension": 10, "search.by_name": 10,
+    "search.by_size": 10, "search.by_modified": 10, "search.by_regex": 10,
+    "file.list": 10, "file.metadata": 10, "file.hash": 10,
+    # Read / inspect
+    "file.read": 20, "content.read_text": 20, "content.read_csv": 20,
+    "content.read_json": 20, "content.parse_markdown": 20,
+    "content.search_text": 20, "content.search_regex": 20,
+    "content.search_code": 20, "content.detect_language": 20,
+    "office.read_pdf": 20, "office.read_docx": 20,
+    # Browser / network
+    "browser": 25, "browser.navigate": 25, "http.get": 25,
+    "download.file": 25,
+    # Process / analyze
+    "content": 30, "content.extract_links": 30, "content.markdown_outline": 30,
+    "content.count_lines": 30, "content.list_functions": 30, "content.list_classes": 30,
+    "content.extract_symbols": 30,
+    "office": 30, "office.extract_headings": 30, "office.list_sheets": 30,
+    "office.read_sheet": 30,
+    # Modify content
+    "content.write_text": 40, "content.replace_text": 40, "content.append_text": 40,
+    "content.write_csv": 40, "content.write_json": 40,
+    "file.write": 40, "file.create": 40, "file.copy": 40, "file.move": 40,
+    "file.rename": 40, "file.delete": 40, "file.create_directory": 40,
+    # Compress / archive
+    "archive": 45, "archive.compress": 45, "archive.extract": 45,
+    "archive.list": 45, "archive.validate": 45,
+    # Terminal / process
+    "terminal": 50, "terminal.run_command": 50,
+    "powershell": 50, "powershell.run": 50,
+    "git": 60,
+    "git.status": 60, "git.diff": 60, "git.add": 60,
+    "git.commit": 60, "git.push": 60, "git.pull": 60,
+    "git.create_branch": 60, "git.checkout_branch": 60,
+    # Network / notify after everything
+    "notification": 90, "notification.send": 90,
+    "upload.file": 90, "api.send_json": 90,
+}
+
+
 class StepStatus:
     PENDING = "pending"
     RUNNING = "running"
@@ -64,11 +107,43 @@ class Planner:
         self._plans: dict[str, Plan] = {}
         self._capability_registry = capability_registry
 
+    def _order_index(self, cap_id: str) -> int:
+        """Determine execution order priority for a capability."""
+        for prefix, order in sorted(_step_order.items(), key=lambda x: -len(x[0])):
+            if cap_id.startswith(prefix):
+                return order
+        return 50
+
     async def create_plan(self, request: str, context: dict | None = None) -> Plan:
         plan = Plan(request=request, context=context or {})
-        plan.steps.append(
-            Step(id=uuid4().hex, capability="request.process", params={"request": request})
-        )
+        seen = set()
+        steps_with_order = []
+
+        if self._capability_registry:
+            ranked = await self._capability_registry.rank_for_task(request)
+            for cap, score in ranked:
+                if score < MIN_CAPABILITY_SCORE:
+                    continue
+                if cap.id in seen:
+                    continue
+                seen.add(cap.id)
+                order = self._order_index(cap.id)
+                step = Step(
+                    id=uuid4().hex,
+                    capability=cap.id,
+                    params={},
+                    timeout=cap.parameters.get("timeout", 30) if hasattr(cap, "parameters") and isinstance(cap.parameters, dict) else 30,
+                    depends_on=[],
+                )
+                steps_with_order.append((order, step))
+
+        if not steps_with_order:
+            step = Step(id=uuid4().hex, capability="request.process", params={"request": request})
+            steps_with_order.append((50, step))
+
+        steps_with_order.sort(key=lambda x: x[0])
+        plan.steps = [s for _, s in steps_with_order]
+
         self._plans[plan.id] = plan
         return plan
 
@@ -87,6 +162,13 @@ class Planner:
 
     async def validate_plan(self, plan: Plan) -> PlanValidation:
         validation = PlanValidation()
+        if not plan.steps:
+            validation.is_valid = False
+            validation.errors.append("Plan has no steps")
+        for step in plan.steps:
+            if not step.capability:
+                validation.is_valid = False
+                validation.errors.append(f"Step {step.id} has no capability")
         return validation
 
     async def recover_plan(self, plan: Plan, failed_step: Step) -> Plan:
@@ -107,9 +189,10 @@ class Planner:
             return None
         ranked = await self._capability_registry.rank_for_task(task)
         for cap, score in ranked:
-            if score > 0 and cap.permission_level <= min_permission + 2:
-                if interface in cap.supported_interfaces:
-                    return (cap.id, score)
+            if score >= MIN_CAPABILITY_SCORE:
+                if cap.permission_level <= min_permission + 2:
+                    if interface in cap.supported_interfaces:
+                        return (cap.id, score)
         return None
 
     async def get_fallback_capability(self, task: str) -> str | None:
@@ -118,7 +201,7 @@ class Planner:
             return None
         ranked = await self._capability_registry.rank_for_task(task)
         for cap, score in ranked:
-            if score > 0:
+            if score >= MIN_CAPABILITY_SCORE:
                 return cap.id
         return None
 
