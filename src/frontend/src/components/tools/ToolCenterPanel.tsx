@@ -33,6 +33,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   archive: "📦",
   developer: "💻",
   git: "🔀",
+  content: "📝",
   system: "⚙",
   general: "🔧",
 };
@@ -44,6 +45,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   archive: "Archive Toolkit",
   developer: "Developer Toolkit",
   git: "Git Toolkit",
+  content: "Content Toolkit",
   system: "System",
   general: "General",
 };
@@ -62,7 +64,7 @@ const PERMISSION_COLORS: Record<number, string> = {
   3: "#ef4444",
 };
 
-const CATEGORY_ORDER = ["filesystem", "search", "clipboard", "archive", "developer", "git", "system", "general"];
+const CATEGORY_ORDER = ["filesystem", "search", "clipboard", "archive", "developer", "git", "content", "system", "general"];
 
 export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
   const [categories, setCategories] = useState<Record<string, ToolInfo[]>>({});
@@ -74,6 +76,7 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
   const [executing, setExecuting] = useState<string | null>(null);
   const [commands, setCommands] = useState<Record<string, CommandState>>({});
   const [commandInputs, setCommandInputs] = useState<Record<string, string>>({});
+  const [contentInputs, setContentInputs] = useState<Record<string, Record<string, string>>>({});
   const outputEndRef = useRef<HTMLDivElement>(null);
 
   const fetchTools = useCallback(async () => {
@@ -112,6 +115,28 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
     setExecuteResult(null);
     try {
       const result = await api.tools.execute(toolId, {});
+      setExecuteResult({ toolId, result });
+    } catch (err: any) {
+      setExecuteResult({ toolId, result: null, error: err.message });
+    } finally {
+      setExecuting(null);
+    }
+  };
+
+  const handleContentExecute = async (toolId: string) => {
+    const inputs = contentInputs[toolId] || {};
+    const params: Record<string, any> = {};
+
+    if (inputs.path) params.path = inputs.path;
+    if (inputs.query) params.query = inputs.query;
+    if (inputs.pattern) params.pattern = inputs.pattern;
+    if (inputs.source) params.source = inputs.source;
+    if (inputs.content) params.content = inputs.content;
+
+    setExecuting(toolId);
+    setExecuteResult(null);
+    try {
+      const result = await api.tools.execute(toolId, params);
       setExecuteResult({ toolId, result });
     } catch (err: any) {
       setExecuteResult({ toolId, result: null, error: err.message });
@@ -191,6 +216,20 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
     ["terminal.run_command", "terminal.stream_output", "powershell.run"].includes(toolId);
 
   const isCancelTool = (toolId: string) => toolId === "terminal.cancel_command";
+
+  const isContentReadTool = (toolId: string) =>
+    ["content.read_text", "content.read_json", "content.read_csv",
+     "content.search_text", "content.search_regex",
+     "content.extract_symbols", "content.list_functions",
+     "content.list_classes", "content.count_lines",
+     "content.detect_language", "content.parse_markdown",
+     "content.markdown_outline", "content.extract_links",
+     "content.search_code", "content.search_in_directory",
+     "content.validate_json", "content.validate_yaml", "content.validate_xml"].includes(toolId);
+
+  const isContentWriteTool = (toolId: string) =>
+    ["content.write_text", "content.append_text", "content.replace_text",
+     "content.write_json", "content.write_csv", "content.batch_replace"].includes(toolId);
 
   const sortedCategories = Object.entries(categories).sort(
     ([a], [b]) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b)
@@ -366,7 +405,60 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
                             </div>
                           )}
 
-                          {!isTerminalTool(tool.id) && !isCancelTool(tool.id) && (
+                          {isContentReadTool(tool.id) && (
+                            <div className="tool-card-actions tool-card-inputs">
+                              <div className="cmd-input-row">
+                                {(tool.id.includes("_text") || tool.id.includes("_json") || tool.id.includes("_csv") || tool.id.includes("symbols") || tool.id.includes("_functions") || tool.id.includes("_classes") || tool.id.includes("count_lines") || tool.id.includes("detect_") || tool.id.includes("search_code")) && (
+                                  <input
+                                    type="text"
+                                    className="cmd-input"
+                                    placeholder="File path..."
+                                    value={(contentInputs[tool.id] || {}).path || ""}
+                                    onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], path: e.target.value } }))}
+                                  />
+                                )}
+                                {(tool.id.includes("search") || tool.id.includes("_text")) && (
+                                  <input
+                                    type="text"
+                                    className="cmd-input"
+                                    placeholder="Search query..."
+                                    value={(contentInputs[tool.id] || {}).query || ""}
+                                    onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], query: e.target.value } }))}
+                                  />
+                                )}
+                                {(tool.id.includes("validate_") || tool.id.includes("parse_") || tool.id.includes("extract_links") || tool.id.includes("outline")) && (
+                                  <input
+                                    type="text"
+                                    className="cmd-input"
+                                    placeholder="File path or source text..."
+                                    value={(contentInputs[tool.id] || {}).source || ""}
+                                    onChange={(e) => setContentInputs(prev => ({ ...prev, [tool.id]: { ...prev[tool.id], source: e.target.value } }))}
+                                  />
+                                )}
+                                <button
+                                  className="btn btn-sm btn-primary"
+                                  onClick={() => handleContentExecute(tool.id)}
+                                  disabled={executing === tool.id}
+                                >
+                                  {executing === tool.id ? "..." : "Run"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {isContentWriteTool(tool.id) && (
+                            <div className="tool-card-actions">
+                              <button
+                                className="btn btn-sm btn-warning"
+                                onClick={() => handleExecute(tool.id)}
+                                disabled={executing === tool.id}
+                              >
+                                {executing === tool.id ? "..." : "Execute (requires confirmation)"}
+                              </button>
+                            </div>
+                          )}
+
+                          {!isTerminalTool(tool.id) && !isCancelTool(tool.id) && !isContentReadTool(tool.id) && !isContentWriteTool(tool.id) && (
                             <div className="tool-card-actions">
                               <button
                                 className="btn btn-sm btn-primary"

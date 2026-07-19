@@ -826,7 +826,7 @@ class TestSystemIntegration:
     """Validate all system tools register and list correctly."""
 
     async def test_all_tools_registered(self, initialized_tools):
-        """All system tools should be registered (27 base + 17 developer + 23 git)."""
+        """All system tools should be registered (27 base + 17 developer + 23 git + 24 content)."""
         all_tools = await initialized_tools.list_tools()
         tool_ids = {t.id for t in all_tools}
 
@@ -852,6 +852,15 @@ class TestSystemIntegration:
             "git.fetch", "git.pull", "git.push",
             "git.list_tags", "git.create_tag", "git.checkout_tag",
             "git.cancel_operation",
+            "content.read_text", "content.write_text", "content.append_text", "content.replace_text",
+            "content.search_text", "content.search_regex", "content.search_in_directory", "content.batch_replace",
+            "content.read_json", "content.write_json",
+            "content.validate_json", "content.validate_yaml", "content.validate_xml",
+            "content.read_csv", "content.write_csv",
+            "content.parse_markdown", "content.markdown_outline", "content.extract_links",
+            "content.search_code", "content.extract_symbols",
+            "content.list_functions", "content.list_classes",
+            "content.count_lines", "content.detect_language",
         }
         missing = expected - tool_ids
         assert not missing, f"Missing tools: {missing}"
@@ -868,6 +877,7 @@ class TestSystemIntegration:
         assert "archive" in categories
         assert "developer" in categories
         assert "git" in categories
+        assert "content" in categories
 
     async def test_tool_contracts_have_permission_levels(self, initialized_tools):
         """All tools should have valid permission levels."""

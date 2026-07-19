@@ -1653,4 +1653,23 @@ body {
   background: #dc2626;
 }
 
+.btn-warning {
+  background: #f59e0b;
+  color: #000;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-warning:hover {
+  background: #d97706;
+}
+
+.tool-card-inputs {
+  padding: 4px 0;
+}
+
 
