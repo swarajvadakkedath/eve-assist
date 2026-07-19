@@ -818,12 +818,14 @@ def register_system_tools(tm, event_bus=None):
     from aios.tools.content_tools import register_content_tools
     from aios.tools.office_tools import register_office_tools
     from aios.tools.network_tools import register_network_tools
+    from aios.tools.productivity_tools import register_productivity_tools
 
     register_developer_tools(tm, event_bus)
     register_git_tools(tm, event_bus)
     register_content_tools(tm, event_bus)
     register_office_tools(tm, event_bus)
     register_network_tools(tm, event_bus)
+    register_productivity_tools(tm, event_bus)
 
     file_tools = [
         ToolContract(

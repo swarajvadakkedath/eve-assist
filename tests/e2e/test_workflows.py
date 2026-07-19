@@ -827,7 +827,7 @@ class TestSystemIntegration:
     """Validate all system tools register and list correctly."""
 
     async def test_all_tools_registered(self, initialized_tools):
-        """All system tools should be registered (27 base + 17 developer + 23 git + 24 content + 14 office + 22 network)."""
+        """All system tools should be registered (27 base + 17 developer + 23 git + 24 content + 14 office + 22 network + 23 productivity)."""
         all_tools = await initialized_tools.list_tools()
         tool_ids = {t.id for t in all_tools}
 
@@ -874,6 +874,13 @@ class TestSystemIntegration:
             "api.send_json", "api.send_form", "api.build_query",
             "api.set_headers", "api.bearer_auth", "api.basic_auth",
             "network.dns_lookup", "network.ping_host", "network.check_port", "network.validate_url",
+            "notification.send", "timer.create", "timer.cancel", "timer.list",
+            "files.recent", "files.favorites", "app.launch", "file.open",
+            "flow.delay", "flow.retry", "flow.wait_for_event",
+            "scheduler.create", "scheduler.cancel",
+            "watch.file", "watch.process", "watch.http",
+            "workflow.save", "workflow.load", "workflow.list",
+            "workflow.export", "workflow.import", "workflow.run", "workflow.cancel",
         }
         missing = expected - tool_ids
         assert not missing, f"Missing tools: {missing}"
@@ -893,6 +900,7 @@ class TestSystemIntegration:
         assert "content" in categories
         assert "office" in categories
         assert "network" in categories
+        assert "productivity" in categories
 
     async def test_tool_contracts_have_permission_levels(self, initialized_tools):
         """All tools should have valid permission levels."""
