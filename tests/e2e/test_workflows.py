@@ -58,6 +58,12 @@ async def initialized_tools(tool_manager, event_bus, permission_manager):
         "archive.compress", "archive.extract",
         "clipboard.write", "clipboard.clear", "clipboard.monitor",
         "file.delete_directory",
+        "terminal.run_command", "terminal.stream_output",
+        "terminal.cancel_command",
+        "powershell.run",
+        "process.start",
+        "environment.set_process",
+        "wsl.run_command",
     ]
     for tid in workspace_tools:
         result = await permission_manager.request_permission(tid, PermissionLevel.WORKSPACE, action=tid)
@@ -818,7 +824,7 @@ class TestSystemIntegration:
     """Validate all system tools register and list correctly."""
 
     async def test_all_tools_registered(self, initialized_tools):
-        """All 27 system tools should be registered."""
+        """All system tools should be registered (27 base + 17 developer)."""
         all_tools = await initialized_tools.list_tools()
         tool_ids = {t.id for t in all_tools}
 
@@ -830,9 +836,18 @@ class TestSystemIntegration:
             "search.by_name", "search.by_regex", "search.by_size", "search.by_modified",
             "clipboard.read", "clipboard.write", "clipboard.clear", "clipboard.monitor",
             "archive.compress", "archive.extract", "archive.list", "archive.validate",
+            "terminal.run_command", "terminal.stream_output",
+            "terminal.cancel_command", "terminal.command_status",
+            "powershell.run", "powershell.run_script",
+            "process.list", "process.start", "process.stop",
+            "process.restart", "process.info",
+            "environment.list", "environment.get", "environment.set_process",
+            "wsl.detect", "wsl.list_distributions", "wsl.run_command",
         }
         missing = expected - tool_ids
         assert not missing, f"Missing tools: {missing}"
+        unexpected = tool_ids - expected
+        assert not unexpected, f"Unexpected tools: {unexpected}"
 
     async def test_tool_categories(self, initialized_tools):
         """Tools should be organized by category."""
@@ -842,6 +857,7 @@ class TestSystemIntegration:
         assert "search" in categories
         assert "clipboard" in categories or "clipboard" in str(categories)
         assert "archive" in categories
+        assert "developer" in categories
 
     async def test_tool_contracts_have_permission_levels(self, initialized_tools):
         """All tools should have valid permission levels."""

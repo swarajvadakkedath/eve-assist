@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../../services/api";
 
 interface ToolInfo {
@@ -16,11 +16,22 @@ interface ToolCenterPanelProps {
   onClose: () => void;
 }
 
+interface CommandState {
+  toolId: string;
+  command: string;
+  status: "running" | "completed" | "failed" | "cancelled" | "timeout";
+  output: string;
+  error: string;
+  exitCode: number | null;
+  commandId: string | null;
+}
+
 const CATEGORY_ICONS: Record<string, string> = {
   filesystem: "📁",
   search: "🔍",
   clipboard: "📋",
   archive: "📦",
+  developer: "💻",
   system: "⚙",
   general: "🔧",
 };
@@ -30,6 +41,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   search: "Search Toolkit",
   clipboard: "Clipboard Toolkit",
   archive: "Archive Toolkit",
+  developer: "Developer Toolkit",
   system: "System",
   general: "General",
 };
@@ -48,6 +60,8 @@ const PERMISSION_COLORS: Record<number, string> = {
   3: "#ef4444",
 };
 
+const CATEGORY_ORDER = ["filesystem", "search", "clipboard", "archive", "developer", "system", "general"];
+
 export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
   const [categories, setCategories] = useState<Record<string, ToolInfo[]>>({});
   const [totalTools, setTotalTools] = useState(0);
@@ -56,6 +70,9 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
   const [executeResult, setExecuteResult] = useState<{ toolId: string; result: any; error?: string } | null>(null);
   const [executing, setExecuting] = useState<string | null>(null);
+  const [commands, setCommands] = useState<Record<string, CommandState>>({});
+  const [commandInputs, setCommandInputs] = useState<Record<string, string>>({});
+  const outputEndRef = useRef<HTMLDivElement>(null);
 
   const fetchTools = useCallback(async () => {
     setLoading(true);
@@ -82,6 +99,12 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
     fetchTools();
   }, [fetchTools]);
 
+  useEffect(() => {
+    if (outputEndRef.current) {
+      outputEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [commands]);
+
   const handleExecute = async (toolId: string) => {
     setExecuting(toolId);
     setExecuteResult(null);
@@ -95,12 +118,115 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
     }
   };
 
-  const sortedCategories = Object.entries(categories).sort(
-    ([a], [b]) => {
-      const order = ["filesystem", "search", "clipboard", "archive", "system", "general"];
-      return order.indexOf(a) - order.indexOf(b);
+  const handleRunCommand = async (toolId: string) => {
+    const command = (commandInputs[toolId] || "").trim();
+    if (!command) return;
+
+    const cmdKey = `${toolId}_${Date.now()}`;
+    setCommands(prev => ({
+      ...prev,
+      [cmdKey]: { toolId, command, status: "running", output: "", error: "", exitCode: null, commandId: null },
+    }));
+
+    try {
+      const result = await api.tools.execute(toolId, { command, timeout: 30 });
+      const data = result.data || {};
+      setCommands(prev => ({
+        ...prev,
+        [cmdKey]: {
+          toolId,
+          command,
+          status: result.success ? "completed" : "failed",
+          output: data.stdout || "",
+          error: data.stderr || result.error || "",
+          exitCode: data.exit_code ?? null,
+          commandId: data.command_id || null,
+        },
+      }));
+    } catch (err: any) {
+      setCommands(prev => ({
+        ...prev,
+        [cmdKey]: { toolId, command, status: "failed", output: "", error: err.message, exitCode: null, commandId: null },
+      }));
     }
+  };
+
+  const handleCancelCommand = async (commandId: string) => {
+    try {
+      await api.tools.execute("terminal.cancel_command", { command_id: commandId });
+      setCommands(prev => {
+        const updated = { ...prev };
+        for (const [key, cmd] of Object.entries(updated)) {
+          if (cmd.commandId === commandId && cmd.status === "running") {
+            updated[key] = { ...cmd, status: "cancelled" };
+          }
+        }
+        return updated;
+      });
+    } catch (err: any) {
+      console.error("Cancel failed:", err);
+    }
+  };
+
+  const handleCheckStatus = async (commandId: string) => {
+    try {
+      const result = await api.tools.execute("terminal.command_status", { command_id: commandId });
+      setCommands(prev => {
+        const updated = { ...prev };
+        for (const [key, cmd] of Object.entries(updated)) {
+          if (cmd.commandId === commandId) {
+            updated[key] = { ...cmd, status: result.data?.status || cmd.status };
+          }
+        }
+        return updated;
+      });
+    } catch (err: any) {
+      console.error("Status check failed:", err);
+    }
+  };
+
+  const isTerminalTool = (toolId: string) =>
+    ["terminal.run_command", "terminal.stream_output", "powershell.run"].includes(toolId);
+
+  const isCancelTool = (toolId: string) => toolId === "terminal.cancel_command";
+
+  const sortedCategories = Object.entries(categories).sort(
+    ([a], [b]) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b)
   );
+
+  const renderCommandOutput = (cmdKey: string, cmd: CommandState) => {
+    const statusColors: Record<string, string> = {
+      running: "#3b82f6",
+      completed: "#22c55e",
+      failed: "#ef4444",
+      cancelled: "#f59e0b",
+      timeout: "#ef4444",
+    };
+    return (
+      <div key={cmdKey} className="cmd-output-block">
+        <div className="cmd-output-header">
+          <code className="cmd-output-command">{cmd.command}</code>
+          <span className="cmd-status-badge" style={{ backgroundColor: statusColors[cmd.status] || "#6b7280" }}>
+            {cmd.status}
+          </span>
+          {cmd.status === "running" && cmd.commandId && (
+            <button className="btn btn-sm btn-danger" onClick={() => handleCancelCommand(cmd.commandId!)}>
+              Cancel
+            </button>
+          )}
+          {cmd.exitCode !== null && (
+            <span className="cmd-exit-code">exit: {cmd.exitCode}</span>
+          )}
+        </div>
+        {cmd.output && (
+          <pre className="cmd-output">{cmd.output}</pre>
+        )}
+        {cmd.error && (
+          <pre className="cmd-output cmd-error">{cmd.error}</pre>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="settings-panel-overlay" onClick={onClose}>
@@ -205,17 +331,52 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
                             </div>
                           )}
 
-                          <div className="tool-card-actions">
-                            <button
-                              className="btn btn-sm btn-primary"
-                              onClick={() => handleExecute(tool.id)}
-                              disabled={executing === tool.id}
-                            >
-                              {executing === tool.id ? "..." : "Execute"}
-                            </button>
-                          </div>
+                          {isCancelTool(tool.id) && (
+                            <div className="tool-card-actions">
+                              <p className="tool-usage-note">Use the Cancel button on running commands below.</p>
+                            </div>
+                          )}
 
-                          {executeResult && executeResult.toolId === tool.id && (
+                          {isTerminalTool(tool.id) && (
+                            <div className="tool-command-input">
+                              <div className="cmd-input-row">
+                                <input
+                                  type="text"
+                                  className="cmd-input"
+                                  placeholder="Enter command..."
+                                  value={commandInputs[tool.id] || ""}
+                                  onChange={(e) => setCommandInputs(prev => ({ ...prev, [tool.id]: e.target.value }))}
+                                  onKeyDown={(e) => { if (e.key === "Enter") handleRunCommand(tool.id); }}
+                                />
+                                <button
+                                  className="btn btn-sm btn-primary"
+                                  onClick={() => handleRunCommand(tool.id)}
+                                  disabled={!(commandInputs[tool.id] || "").trim()}
+                                >
+                                  Run
+                                </button>
+                              </div>
+                              {Object.entries(commands)
+                                .filter(([, cmd]) => cmd.toolId === tool.id)
+                                .map(([key, cmd]) => renderCommandOutput(key, cmd))
+                              }
+                              <div ref={outputEndRef} />
+                            </div>
+                          )}
+
+                          {!isTerminalTool(tool.id) && !isCancelTool(tool.id) && (
+                            <div className="tool-card-actions">
+                              <button
+                                className="btn btn-sm btn-primary"
+                                onClick={() => handleExecute(tool.id)}
+                                disabled={executing === tool.id}
+                              >
+                                {executing === tool.id ? "..." : "Execute"}
+                              </button>
+                            </div>
+                          )}
+
+                          {executeResult && executeResult.toolId === tool.id && !isTerminalTool(tool.id) && (
                             <div className={`tool-execute-result ${executeResult.error ? "result-error" : "result-success"}`}>
                               {executeResult.error ? (
                                 <span>Error: {executeResult.error}</span>

@@ -1545,4 +1545,112 @@ body {
   font-style: italic;
 }
 
+.tool-command-input {
+  margin-top: 8px;
+  border-top: 1px solid var(--border-color, rgba(255,255,255,0.08));
+  padding-top: 8px;
+}
+
+.cmd-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.cmd-input {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, rgba(255,255,255,0.15));
+  background: var(--bg-secondary, rgba(255,255,255,0.05));
+  color: var(--text-primary, #e0e0e0);
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 12px;
+  outline: none;
+}
+
+.cmd-input:focus {
+  border-color: #3b82f6;
+}
+
+.cmd-output-block {
+  margin-top: 6px;
+  border: 1px solid var(--border-color, rgba(255,255,255,0.1));
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.cmd-output-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: rgba(0,0,0,0.2);
+  font-size: 11px;
+}
+
+.cmd-output-command {
+  flex: 1;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.cmd-status-badge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  text-transform: uppercase;
+}
+
+.cmd-exit-code {
+  font-size: 10px;
+  color: var(--text-secondary, rgba(255,255,255,0.5));
+  font-family: monospace;
+}
+
+.cmd-output {
+  padding: 8px;
+  margin: 0;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-primary, #e0e0e0);
+  background: rgba(0,0,0,0.15);
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.cmd-error {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.tool-usage-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary, rgba(255,255,255,0.5));
+  font-style: italic;
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+}
+
 
