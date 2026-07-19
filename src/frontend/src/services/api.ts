@@ -104,6 +104,41 @@ export const api = {
     health: () => request("/system/health"),
     status: () => request("/system/status"),
   },
+  voice: {
+    state: () => request("/voice/state"),
+    config: () => request("/voice/config"),
+    updateConfig: (config: Record<string, unknown>) =>
+      request("/voice/config", {
+        method: "PUT",
+        body: JSON.stringify({ config }),
+      }),
+    startSession: (conversationId?: string) =>
+      request("/voice/session/start", {
+        method: "POST",
+        body: JSON.stringify({ conversation_id: conversationId }),
+      }),
+    stopSession: () =>
+      request("/voice/session/stop", { method: "POST" }),
+    startListening: (language?: string) =>
+      request("/voice/listen/start", {
+        method: "POST",
+        body: JSON.stringify({ language }),
+      }),
+    stopListening: () =>
+      request("/voice/listen/stop", { method: "POST" }),
+    speak: (text: string) =>
+      request("/voice/speak", {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      }),
+    stopSpeaking: () =>
+      request("/voice/speak/stop", { method: "POST" }),
+    bargeIn: () =>
+      request("/voice/barge-in", { method: "POST" }),
+    inputDevices: () => request("/voice/devices/input"),
+    outputDevices: () => request("/voice/devices/output"),
+    voices: () => request("/voice/voices"),
+  },
   desktop: {
     status: () => request("/desktop/status"),
     statusHistory: (limit = 50) => request(`/desktop/status/history?limit=${limit}`),

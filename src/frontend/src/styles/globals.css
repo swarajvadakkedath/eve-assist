@@ -1672,4 +1672,269 @@ body {
   padding: 4px 0;
 }
 
+/* ─── Voice ─── */
+.voice-button-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.voice-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.voice-btn:hover {
+  background: var(--accent);
+  color: white;
+}
+
+.voice-btn.listening {
+  background: var(--error);
+  color: white;
+  animation: voice-pulse 1.5s ease-in-out infinite;
+}
+
+.voice-btn.speaking {
+  background: var(--success);
+  color: white;
+}
+
+.voice-mic-icon {
+  width: 16px;
+  height: 16px;
+  position: relative;
+  z-index: 1;
+}
+
+.voice-audio-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.voice-audio-level {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0.4;
+  transition: transform 0.1s ease;
+}
+
+.voice-btn.listening .voice-audio-level {
+  border-color: var(--error);
+}
+
+.voice-tooltip {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 6px;
+  padding: 4px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  z-index: 100;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+@keyframes voice-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 83, 80, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(239, 83, 80, 0); }
+}
+
+.voice-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  position: relative;
+}
+
+.voice-indicator.listening {
+  color: var(--error);
+  background: rgba(239, 83, 80, 0.1);
+}
+
+.voice-indicator.speaking {
+  color: var(--success);
+  background: rgba(102, 187, 106, 0.1);
+}
+
+.voice-indicator-compact {
+  display: flex;
+  align-items: center;
+}
+
+.voice-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.voice-indicator.listening .voice-indicator-dot,
+.voice-btn.listening .voice-indicator-dot {
+  background: var(--error);
+  animation: voice-blink 1s step-end infinite;
+}
+
+.voice-indicator.speaking .voice-indicator-dot {
+  background: var(--success);
+  animation: voice-blink 0.6s step-end infinite;
+}
+
+.voice-indicator.idle .voice-indicator-dot {
+  background: var(--text-secondary);
+}
+
+.voice-indicator-pulse {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.voice-indicator.listening .voice-indicator-pulse {
+  background: var(--error);
+  animation: voice-pulse 1.5s ease-in-out infinite;
+}
+
+.voice-indicator-label {
+  font-weight: 500;
+}
+
+@keyframes voice-blink {
+  50% { opacity: 0.3; }
+}
+
+.audio-level-meter {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 2px 4px;
+}
+
+.audio-level-bar {
+  flex: 1;
+  min-height: 2px;
+  border-radius: 1px;
+  background: var(--border);
+  transition: background 0.1s;
+}
+
+.audio-level-bar.active {
+  background: var(--accent);
+}
+
+.transcript-panel {
+  max-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  min-width: 180px;
+}
+
+.transcript-compact {
+  max-height: 40px;
+  min-width: 100px;
+  background: transparent;
+  padding: 0 4px;
+  overflow: hidden;
+}
+
+.transcript-item {
+  padding: 2px 0;
+}
+
+.transcript-final {
+  color: var(--text-secondary);
+}
+
+.transcript-partial {
+  color: var(--accent);
+  font-style: italic;
+}
+
+.transcript-cursor {
+  animation: voice-blink 1s step-end infinite;
+  margin-left: 1px;
+  color: var(--accent);
+}
+
+.transcript-empty {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.interrupt-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--error);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.interrupt-button:hover {
+  background: #dc2626;
+}
+
+.interrupt-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.interrupt-label {
+  font-size: 11px;
+}
+
+.app-header-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: center;
+}
+
+.voice-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 

@@ -6,6 +6,11 @@ import PluginManagerPanel from "./components/plugins/PluginManagerPanel";
 import ToolCenterPanel from "./components/tools/ToolCenterPanel";
 import StatusIndicator from "./components/desktop/StatusIndicator";
 import NotificationCenter from "./components/desktop/NotificationCenter";
+import VoiceButton from "./components/voice/VoiceButton";
+import VoiceIndicator from "./components/voice/VoiceIndicator";
+import InterruptButton from "./components/voice/InterruptButton";
+import TranscriptPanel from "./components/voice/TranscriptPanel";
+import { voiceService } from "./services/voice";
 
 function App() {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
@@ -33,10 +38,36 @@ function App() {
         e.preventDefault();
         setToolsOpen((v) => !v);
       }
+      if ((e.ctrlKey || e.metaKey) && e.key === "m") {
+        e.preventDefault();
+        handleVoiceToggle();
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  useEffect(() => {
+    voiceService.connect().catch(() => {});
+    return () => { voiceService.disconnect(); };
+  }, []);
+
+  const handleVoiceToggle = async () => {
+    try {
+      const s = voiceService.state;
+      if (s.isListening) {
+        await voiceService.stopListening();
+      } else {
+        await voiceService.connect();
+        if (!s.sessionId) {
+          await voiceService.startSession();
+        }
+        await voiceService.startListening();
+      }
+    } catch (e) {
+      console.error("voice toggle error", e);
+    }
+  };
 
   const handleNavigate = (action: string, payload?: string) => {
     switch (action) {
@@ -79,7 +110,13 @@ function App() {
     <div className={`app ${theme}`}>
       <div className="app-header">
         <StatusIndicator />
+        <div className="app-header-center">
+          <VoiceIndicator compact />
+          <InterruptButton />
+        </div>
         <div className="app-header-actions">
+          <TranscriptPanel compact />
+          <VoiceButton />
           <NotificationCenter />
           <button className="btn-icon" onClick={() => setToolsOpen(true)} title="Tool Center (Ctrl+T)">
             🛠

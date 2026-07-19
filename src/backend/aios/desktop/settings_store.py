@@ -58,6 +58,20 @@ DEFAULT_SETTINGS: dict = {
         "provider": "openai",
         "model": "gpt-4o",
     },
+    "voice": {
+        "stt_provider": "whisper",
+        "tts_provider": "pyttsx3",
+        "input_device": None,
+        "output_device": None,
+        "language": "en-US",
+        "voice_id": "",
+        "speaking_rate": 1.0,
+        "pitch": 1.0,
+        "push_to_talk_key": "v",
+        "wake_word_enabled": False,
+        "wake_word": "hey eve",
+        "continuous_listening": False,
+    },
 }
 
 

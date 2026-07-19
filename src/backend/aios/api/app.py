@@ -31,6 +31,12 @@ from aios.desktop.notifications import NotificationService
 from aios.desktop.window_manager import WindowManager
 from aios.desktop.startup import StartupManager
 from aios.plugins.plugin_manager import PluginManager
+from aios.voice.stt import STTEngine
+from aios.voice.tts import TTSEngine
+from aios.voice.session import VoiceSession
+from aios.voice.pipeline import VoicePipeline
+from aios.voice.events import VoiceEventPublisher
+from aios.voice.models import VoiceConfig, STTProvider, TTSProvider
 
 logger = None
 
@@ -133,6 +139,36 @@ async def lifespan(app: FastAPI):
     di.register(ConversationManager, lambda: conversation_manager)
     di.register(ConversationService, lambda: conversation_service)
 
+    voice_config = VoiceConfig(
+        stt_provider=STTProvider(settings.voice_stt_engine or "whisper"),
+        tts_provider=TTSProvider(settings.voice_tts_engine or "pyttsx3"),
+        language=settings.ui_language or "en-US",
+        wake_word=settings.voice_wake_word or "hey eve",
+    )
+    stt_engine = STTEngine(provider=voice_config.stt_provider)
+    tts_engine = TTSEngine(provider=voice_config.tts_provider)
+    voice_event_publisher = VoiceEventPublisher(event_bus)
+    voice_session = VoiceSession(
+        stt_engine=stt_engine,
+        tts_engine=tts_engine,
+        conversation_service=conversation_service,
+        event_publisher=voice_event_publisher,
+        config=voice_config,
+    )
+    voice_pipeline = VoicePipeline(
+        session=voice_session,
+        stt_engine=stt_engine,
+        tts_engine=tts_engine,
+        conversation_service=conversation_service,
+        event_publisher=voice_event_publisher,
+    )
+
+    di.register(STTEngine, lambda: stt_engine)
+    di.register(TTSEngine, lambda: tts_engine)
+    di.register(VoiceSession, lambda: voice_session)
+    di.register(VoicePipeline, lambda: voice_pipeline)
+    di.register(VoiceEventPublisher, lambda: voice_event_publisher)
+
     app.state.di = di
     app.state.event_bus = event_bus
     app.state.tool_manager = tool_manager
@@ -147,12 +183,20 @@ async def lifespan(app: FastAPI):
     app.state.workspace_service = workspace_service
     app.state.plugin_manager = plugin_manager
     app.state.execution_engine = execution_engine
+    app.state.voice_session = voice_session
+    app.state.voice_pipeline = voice_pipeline
+    app.state.stt_engine = stt_engine
+    app.state.tts_engine = tts_engine
+    app.state.voice_event_publisher = voice_event_publisher
 
     logger.info("aios.started", version="1.0.0")
     await event_bus.publish("system:startup", {"version": "1.0.0"})
 
     yield
 
+    await voice_session.cleanup()
+    await stt_engine.cleanup()
+    await tts_engine.cleanup()
     await workspace_manager.stop()
     await plugin_manager.shutdown()
     await event_bus.publish("system:shutdown", {"reason": "app_stop"})
@@ -202,6 +246,9 @@ def register_routes(app: FastAPI):
 
     from aios.api.workspace import router as workspace_router
     app.include_router(workspace_router, prefix="/api/v1")
+
+    from aios.api.voice import router as voice_router
+    app.include_router(voice_router)
 
     @app.get("/api/v1/system/health")
     async def health_check(request):
