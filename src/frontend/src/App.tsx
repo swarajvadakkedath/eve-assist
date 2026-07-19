@@ -11,6 +11,11 @@ import VoiceIndicator from "./components/voice/VoiceIndicator";
 import InterruptButton from "./components/voice/InterruptButton";
 import TranscriptPanel from "./components/voice/TranscriptPanel";
 import { voiceService } from "./services/voice";
+import { api } from "./services/api";
+import ScreenCaptureButton from "./components/vision/ScreenCaptureButton";
+import ObservationPanel from "./components/vision/ObservationPanel";
+import LivePreview from "./components/vision/LivePreview";
+import ImageUpload from "./components/vision/ImageUpload";
 
 function App() {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
@@ -19,6 +24,8 @@ function App() {
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [visionOpen, setVisionOpen] = useState(false);
+  const [visionMode, setVisionMode] = useState<"observation" | "live" | "upload" | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -41,6 +48,11 @@ function App() {
       if ((e.ctrlKey || e.metaKey) && e.key === "m") {
         e.preventDefault();
         handleVoiceToggle();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "i") {
+        e.preventDefault();
+        setVisionOpen((v) => !v);
+        setVisionMode("observation");
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -76,6 +88,10 @@ function App() {
         break;
       case "plugins":
         setPluginsOpen(true);
+        break;
+      case "vision":
+        setVisionOpen(true);
+        setVisionMode("observation");
         break;
       case "theme":
         setTheme((t) => (t === "dark" ? "light" : "dark"));
@@ -116,6 +132,10 @@ function App() {
         </div>
         <div className="app-header-actions">
           <TranscriptPanel compact />
+          <ScreenCaptureButton
+            onCapture={() => { setVisionOpen(true); setVisionMode("observation"); }}
+            onError={(e) => console.error(e)}
+          />
           <VoiceButton />
           <NotificationCenter />
           <button className="btn-icon" onClick={() => setToolsOpen(true)} title="Tool Center (Ctrl+T)">
@@ -139,6 +159,39 @@ function App() {
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       {toolsOpen && <ToolCenterPanel onClose={() => setToolsOpen(false)} />}
       {pluginsOpen && <PluginManagerPanel onClose={() => setPluginsOpen(false)} />}
+
+      {visionOpen && visionMode === "observation" && (
+        <div className="vision-panel-overlay" onClick={() => { setVisionOpen(false); setVisionMode(null); }}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <ObservationPanel onClose={() => { setVisionOpen(false); setVisionMode(null); }} />
+          </div>
+        </div>
+      )}
+      {visionOpen && visionMode === "live" && (
+        <div className="vision-panel-overlay" onClick={() => { setVisionOpen(false); setVisionMode(null); }}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <LivePreview onClose={() => { setVisionOpen(false); setVisionMode(null); }} />
+          </div>
+        </div>
+      )}
+      {visionOpen && visionMode === "upload" && (
+        <div className="vision-panel-overlay" onClick={() => { setVisionOpen(false); setVisionMode(null); }}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <div className="vision-upload-wrapper">
+              <ImageUpload
+                onImageSelected={async (file) => {
+                  try {
+                    const data = await api.vision.analyzeUpload(file);
+                    console.log("Upload analysis:", data);
+                  } catch (e) {
+                    console.error("Upload error", e);
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

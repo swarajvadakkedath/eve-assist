@@ -139,6 +139,42 @@ export const api = {
     outputDevices: () => request("/voice/devices/output"),
     voices: () => request("/voice/voices"),
   },
+  vision: {
+    capture: (target = "full_screen", monitorId = 0, region?: number[]) =>
+      request("/vision/capture", {
+        method: "POST",
+        body: JSON.stringify({ target, monitor_id: monitorId, region }),
+      }),
+    analyze: (target = "full_screen") =>
+      request("/vision/analyze", {
+        method: "POST",
+        body: JSON.stringify({ target }),
+      }),
+    analyzeUpload: (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return fetch(`${API_BASE}/vision/analyze-upload`, {
+        method: "POST",
+        body: formData,
+      }).then((r) => {
+        if (!r.ok) throw new Error(r.statusText);
+        return r.json();
+      });
+    },
+    observation: () => request("/vision/observation/latest"),
+    startSession: () =>
+      request("/vision/session/start", { method: "POST" }),
+    stopSession: () =>
+      request("/vision/session/stop", { method: "POST" }),
+    config: () => request("/vision/config"),
+    updateConfig: (config: Record<string, unknown>) =>
+      request("/vision/config", {
+        method: "PUT",
+        body: JSON.stringify(config),
+      }),
+    providers: () => request("/vision/providers"),
+    monitors: () => request("/vision/monitors"),
+  },
   desktop: {
     status: () => request("/desktop/status"),
     statusHistory: (limit = 50) => request(`/desktop/status/history?limit=${limit}`),

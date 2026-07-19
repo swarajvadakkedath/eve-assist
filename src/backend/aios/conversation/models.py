@@ -39,6 +39,7 @@ class StreamEventType(str, Enum):
     FINAL_RESPONSE = "final_response"
     TITLE_GENERATED = "title_generated"
     ANALYTICS = "analytics"
+    VISION_OBSERVATION = "vision_observation"
 
 
 @dataclass

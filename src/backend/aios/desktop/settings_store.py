@@ -72,6 +72,15 @@ DEFAULT_SETTINGS: dict = {
         "wake_word": "hey eve",
         "continuous_listening": False,
     },
+    "vision": {
+        "provider": "builtin",
+        "ocr_engine": "tesseract",
+        "capture_quality": 75,
+        "privacy_filters": True,
+        "auto_redact": True,
+        "observation_mode": "manual",
+        "monitor": 0,
+    },
 }
 
 

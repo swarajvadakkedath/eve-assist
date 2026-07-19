@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import VoiceSettingsPanel from "../voice/VoiceSettingsPanel";
+import VisionSettings from "../vision/VisionSettings";
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -55,7 +56,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           <button className="btn-close" onClick={onClose}>×</button>
         </div>
         <div className="settings-tabs">
-          {["general", "voice", "ai", "shortcuts", "notifications", "startup", "privacy"].map((tab) => (
+          {["general", "voice", "vision", "ai", "shortcuts", "notifications", "startup", "privacy"].map((tab) => (
             <button
               key={tab}
               className={`settings-tab ${activeTab === tab ? "active" : ""}`}
@@ -84,6 +85,9 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           )}
           {activeTab === "voice" && (
             <VoiceSettingsPanel />
+          )}
+          {activeTab === "vision" && (
+            <VisionSettings />
           )}
           {activeTab === "ai" && (
             <>

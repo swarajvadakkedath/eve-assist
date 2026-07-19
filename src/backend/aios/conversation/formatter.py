@@ -147,3 +147,7 @@ def create_title_generated_event(title: str) -> dict:
 
 def create_analytics_event(analytics: dict) -> dict:
     return {"type": StreamEventType.ANALYTICS.value, "data": analytics}
+
+
+def create_vision_observation_event(observation: dict) -> dict:
+    return {"type": StreamEventType.VISION_OBSERVATION.value, "data": observation}

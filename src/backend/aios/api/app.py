@@ -37,6 +37,11 @@ from aios.voice.session import VoiceSession
 from aios.voice.pipeline import VoicePipeline
 from aios.voice.events import VoiceEventPublisher
 from aios.voice.models import VoiceConfig, STTProvider, TTSProvider
+from aios.vision.engine import VisionEngine
+from aios.vision.session import VisionSession
+from aios.vision.pipeline import VisionPipeline
+from aios.vision.events import VisionEventPublisher
+from aios.vision.models import VisionConfig, VisionProvider, OCREngine
 
 logger = None
 
@@ -169,6 +174,28 @@ async def lifespan(app: FastAPI):
     di.register(VoicePipeline, lambda: voice_pipeline)
     di.register(VoiceEventPublisher, lambda: voice_event_publisher)
 
+    vision_config = VisionConfig(
+        provider=VisionProvider(settings.vision_provider or "builtin"),
+        ocr_engine=OCREngine(settings.vision_ocr_engine or "tesseract"),
+        capture_quality=getattr(settings, "vision_capture_quality", 75),
+    )
+    vision_engine = VisionEngine(config=vision_config)
+    vision_event_publisher = VisionEventPublisher(event_bus)
+    vision_session = VisionSession(engine=vision_engine, config=vision_config)
+    vision_pipeline = VisionPipeline(
+        vision_session=vision_session,
+        conversation_manager=conversation_manager,
+        event_publisher=vision_event_publisher,
+        config=vision_config,
+    )
+    from aios.vision.tools import register_vision_tools
+    register_vision_tools(tool_manager, vision_engine, vision_session)
+
+    di.register(VisionEngine, lambda: vision_engine)
+    di.register(VisionSession, lambda: vision_session)
+    di.register(VisionPipeline, lambda: vision_pipeline)
+    di.register(VisionEventPublisher, lambda: vision_event_publisher)
+
     app.state.di = di
     app.state.event_bus = event_bus
     app.state.tool_manager = tool_manager
@@ -188,6 +215,10 @@ async def lifespan(app: FastAPI):
     app.state.stt_engine = stt_engine
     app.state.tts_engine = tts_engine
     app.state.voice_event_publisher = voice_event_publisher
+    app.state.vision_engine = vision_engine
+    app.state.vision_session = vision_session
+    app.state.vision_pipeline = vision_pipeline
+    app.state.vision_event_publisher = vision_event_publisher
 
     logger.info("aios.started", version="1.0.0")
     await event_bus.publish("system:startup", {"version": "1.0.0"})
@@ -197,6 +228,7 @@ async def lifespan(app: FastAPI):
     await voice_session.cleanup()
     await stt_engine.cleanup()
     await tts_engine.cleanup()
+    await vision_session.stop()
     await workspace_manager.stop()
     await plugin_manager.shutdown()
     await event_bus.publish("system:shutdown", {"reason": "app_stop"})
@@ -249,6 +281,11 @@ def register_routes(app: FastAPI):
 
     from aios.api.voice import router as voice_router
     app.include_router(voice_router)
+
+    import aios.api.vision as vision_api
+    from aios.api.vision import router as vision_router
+    app.include_router(vision_router)
+    vision_api.vision_session = vision_session
 
     @app.get("/api/v1/system/health")
     async def health_check(request):
