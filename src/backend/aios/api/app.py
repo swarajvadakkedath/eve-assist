@@ -20,6 +20,8 @@ from aios.conversation.manager import ConversationManager
 from aios.conversation.service import ConversationService
 from aios.tools.builtin import register_builtin_tools
 from aios.tools.system_tools import register_system_tools
+from aios.tools.browser_tools import register_browser_tools
+from aios.browser.engine import BrowserEngine
 from aios.execution.engine import ExecutionEngine
 from aios.workspace.manager import WorkspaceManager
 from aios.workspace.service import WorkspaceService
@@ -191,12 +193,17 @@ async def lifespan(app: FastAPI):
     from aios.vision.tools import register_vision_tools
     register_vision_tools(tool_manager, vision_engine, vision_session)
 
+    browser_engine = BrowserEngine(vision_engine=vision_engine, event_bus=event_bus)
+    register_browser_tools(tool_manager, browser_engine, vision_engine, event_bus)
+
     di.register(VisionEngine, lambda: vision_engine)
     di.register(VisionSession, lambda: vision_session)
     di.register(VisionPipeline, lambda: vision_pipeline)
     di.register(VisionEventPublisher, lambda: vision_event_publisher)
+    di.register(BrowserEngine, lambda: browser_engine)
 
     app.state.di = di
+    app.state.browser_engine = browser_engine
     app.state.event_bus = event_bus
     app.state.tool_manager = tool_manager
     app.state.capability_registry = capability_registry
@@ -229,6 +236,7 @@ async def lifespan(app: FastAPI):
     await stt_engine.cleanup()
     await tts_engine.cleanup()
     await vision_session.stop()
+    await browser_engine.shutdown()
     await workspace_manager.stop()
     await plugin_manager.shutdown()
     await event_bus.publish("system:shutdown", {"reason": "app_stop"})

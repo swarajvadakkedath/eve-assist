@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
+from aios.core.capability_registry import CapabilityRegistry
 
 
 class StepStatus:
@@ -59,8 +60,9 @@ class PlanResult:
 
 
 class Planner:
-    def __init__(self):
+    def __init__(self, capability_registry: CapabilityRegistry | None = None):
         self._plans: dict[str, Plan] = {}
+        self._capability_registry = capability_registry
 
     async def create_plan(self, request: str, context: dict | None = None) -> Plan:
         plan = Plan(request=request, context=context or {})
@@ -95,3 +97,37 @@ class Planner:
             new_plan.steps.append(step)
         self._plans[new_plan.id] = new_plan
         return new_plan
+
+    async def select_best_capability(self, task: str, interface: str = "chat", min_permission: int = 0) -> tuple[str, float] | None:
+        """Select the best capability for a task using intelligence ranking.
+
+        Returns (capability_id, score) or None if no capability scores above threshold.
+        """
+        if not self._capability_registry:
+            return None
+        ranked = await self._capability_registry.rank_for_task(task)
+        for cap, score in ranked:
+            if score > 0 and cap.permission_level <= min_permission + 2:
+                if interface in cap.supported_interfaces:
+                    return (cap.id, score)
+        return None
+
+    async def get_fallback_capability(self, task: str) -> str | None:
+        """Find a fallback capability when the primary selection is unavailable."""
+        if not self._capability_registry:
+            return None
+        ranked = await self._capability_registry.rank_for_task(task)
+        for cap, score in ranked:
+            if score > 0:
+                return cap.id
+        return None
+
+    async def get_related_capabilities(self, capability_id: str, max_results: int = 5) -> list[dict]:
+        """Get related/recommended capabilities for a given capability id."""
+        if not self._capability_registry:
+            return []
+        alternatives = await self._capability_registry.recommend_alternatives(capability_id, max_results)
+        return [
+            {"id": c.id, "name": c.name, "description": c.description, "quality": c.quality}
+            for c in alternatives
+        ]

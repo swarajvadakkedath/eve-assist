@@ -12,6 +12,7 @@ from aios.vision.session import VisionSession
 def tool_manager():
     mgr = MagicMock()
     mgr.register_tool = MagicMock(return_value=lambda f: f)
+    mgr.tool = MagicMock(return_value=lambda f: f)
     return mgr
 
 
@@ -73,7 +74,7 @@ def session():
 
 def test_register_vision_tools(tool_manager, engine, session):
     register_vision_tools(tool_manager, engine, session)
-    names = [call.kwargs.get("name") for call in tool_manager.register_tool.call_args_list]
+    names = [call.kwargs.get("name") for call in tool_manager.tool.call_args_list]
     expected_tools = [
         "vision_capture_screen",
         "vision_capture_window",
@@ -92,7 +93,7 @@ def test_register_vision_tools(tool_manager, engine, session):
 
 def test_register_vision_tools_descriptions(tool_manager, engine, session):
     register_vision_tools(tool_manager, engine, session)
-    for call in tool_manager.register_tool.call_args_list:
+    for call in tool_manager.tool.call_args_list:
         name = call.kwargs.get("name", "")
         desc = call.kwargs.get("description", "")
         assert desc, f"Tool {name} has no description"

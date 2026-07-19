@@ -37,6 +37,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   office: "📄",
   network: "🌐",
   system: "⚙",
+  browser: "🌐",
   general: "🔧",
 };
 
@@ -51,6 +52,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   office: "Office Documents",
   network: "Network Toolkit",
   system: "System",
+  browser: "Browser Automation",
   general: "General",
 };
 
@@ -68,7 +70,7 @@ const PERMISSION_COLORS: Record<number, string> = {
   3: "#ef4444",
 };
 
-const CATEGORY_ORDER = ["filesystem", "search", "clipboard", "archive", "developer", "git", "content", "office", "network", "system", "general"];
+const CATEGORY_ORDER = ["filesystem", "search", "clipboard", "archive", "developer", "git", "content", "office", "network", "system", "browser", "general"];
 
 export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
   const [categories, setCategories] = useState<Record<string, ToolInfo[]>>({});
@@ -76,6 +78,8 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterPermission, setFilterPermission] = useState<number | null>(null);
   const [executeResult, setExecuteResult] = useState<{ toolId: string; result: any; error?: string } | null>(null);
   const [executing, setExecuting] = useState<string | null>(null);
   const [commands, setCommands] = useState<Record<string, CommandState>>({});
@@ -273,9 +277,29 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
      "api.send_json", "api.send_form",
     ].includes(toolId);
 
-  const sortedCategories = Object.entries(categories).sort(
+  const filteredCategories = Object.entries(categories).map(([cat, tools]) => {
+    let filtered = tools;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = tools.filter(t =>
+        t.id.toLowerCase().includes(q) ||
+        t.name.toLowerCase().includes(q) ||
+        t.description.toLowerCase().includes(q) ||
+        (t.tags || []).some(tag => tag.toLowerCase().includes(q)) ||
+        (t.capabilities || []).some(cap => cap.toLowerCase().includes(q))
+      );
+    }
+    if (filterPermission !== null) {
+      filtered = filtered.filter(t => t.permission_level <= filterPermission);
+    }
+    return [cat, filtered] as [string, ToolInfo[]];
+  }).filter(([, tools]) => tools.length > 0);
+
+  const sortedCategories = filteredCategories.sort(
     ([a], [b]) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b)
   );
+
+  const matchedToolCount = sortedCategories.reduce((sum, [, tools]) => sum + tools.length, 0);
 
   const renderCommandOutput = (cmdKey: string, cmd: CommandState) => {
     const statusColors: Record<string, string> = {
@@ -316,8 +340,35 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
       <div className="settings-panel settings-panel-wide" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
           <h2>Tool Center</h2>
-          <span className="tool-count-badge">{totalTools} tools</span>
+          <span className="tool-count-badge">{searchQuery ? `${matchedToolCount} of ` : ""}{totalTools} tools</span>
           <button className="btn-close" onClick={onClose}>×</button>
+        </div>
+
+        <div className="tool-search-bar" style={{ padding: "8px 16px", display: "flex", gap: "8px", alignItems: "center", borderBottom: "1px solid var(--border)" }}>
+          <input
+            type="text"
+            className="cmd-input"
+            placeholder="Search tools by name, id, description, tags..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ flex: 1 }}
+          />
+          <div style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
+            {[null, 0, 1, 2, 3].map((level) => (
+              <button
+                key={level ?? "all"}
+                className="btn btn-sm"
+                style={{
+                  backgroundColor: filterPermission === level ? (level !== null ? PERMISSION_COLORS[level] : "var(--accent)") : "var(--bg-tertiary)",
+                  color: filterPermission === level ? "#fff" : "var(--text-secondary)",
+                  border: "1px solid var(--border)",
+                }}
+                onClick={() => setFilterPermission(filterPermission === level ? null : level)}
+              >
+                {level !== null ? PERMISSION_LABELS[level] : "All"}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="settings-body">
@@ -373,6 +424,27 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
                           {tool.description && (
                             <p className="tool-card-desc">{tool.description}</p>
                           )}
+
+                          <div className="tool-capability-badges" style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "6px" }}>
+                            {(tool as any).supported_interfaces?.map((iface: string) => (
+                              <span key={iface} className="capability-pill" style={{ background: "rgba(139, 92, 246, 0.15)", color: "#a78bfa" }}>{iface}</span>
+                            ))}
+                            {(tool as any).supports_streaming && (
+                              <span className="capability-pill" style={{ background: "rgba(34, 197, 94, 0.15)", color: "#4ade80" }}>streaming</span>
+                            )}
+                            {(tool as any).supports_cancellation && (
+                              <span className="capability-pill" style={{ background: "rgba(251, 191, 36, 0.15)", color: "#fbbf24" }}>cancellable</span>
+                            )}
+                            {(tool as any).estimated_latency > 0 && (
+                              <span className="capability-pill" style={{ background: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" }}>{(tool as any).estimated_latency}ms</span>
+                            )}
+                            {(tool as any).estimated_cost > 0 && (
+                              <span className="capability-pill" style={{ background: "rgba(239, 68, 68, 0.15)", color: "#f87171" }}>{(tool as any).estimated_cost}cr</span>
+                            )}
+                            {(tool as any).reliability_score !== undefined && (tool as any).reliability_score < 1 && (
+                              <span className="capability-pill" style={{ background: "rgba(251, 146, 60, 0.15)", color: "#fb923c" }}>{(tool as any).reliability_score * 100}%</span>
+                            )}
+                          </div>
 
                           {tool.tags && tool.tags.length > 0 && (
                             <div className="tool-tags">

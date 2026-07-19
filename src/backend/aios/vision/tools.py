@@ -7,6 +7,7 @@ from io import BytesIO
 from PIL import Image
 
 from aios.core.tool_manager import ToolManager
+from aios.core.permission_manager import PermissionLevel
 from aios.vision.engine import VisionEngine
 from aios.vision.session import VisionSession
 from aios.vision.models import VisionConfig
@@ -15,7 +16,7 @@ from aios.vision.models import VisionConfig
 def register_vision_tools(tool_manager: ToolManager, vision_engine: VisionEngine, vision_session: VisionSession):
     """Register all vision tools with the ToolManager."""
 
-    @tool_manager.register_tool(
+    @tool_manager.tool(
         name="vision_capture_screen",
         description="Capture the full screen and return image metadata and base64-encoded data. Use to get a visual of what's on the user's screen.",
         parameters={
@@ -34,7 +35,7 @@ def register_vision_tools(tool_manager: ToolManager, vision_engine: VisionEngine
             "image_base64": b64,
         })
 
-    @tool_manager.register_tool(
+    @tool_manager.tool(
         name="vision_capture_window",
         description="Capture the active window. Returns screenshot of the currently focused application window.",
         parameters={
@@ -52,7 +53,7 @@ def register_vision_tools(tool_manager: ToolManager, vision_engine: VisionEngine
             "image_base64": b64,
         })
 
-    @tool_manager.register_tool(
+    @tool_manager.tool(
         name="vision_capture_region",
         description="Capture a specific region of the screen by coordinates. e.g. {'x':100,'y':100,'width':500,'height':400}",
         parameters={
@@ -78,7 +79,7 @@ def register_vision_tools(tool_manager: ToolManager, vision_engine: VisionEngine
             "image_base64": b64,
         })
 
-    @tool_manager.register_tool(
+    @tool_manager.tool(
         name="vision_capture_monitor",
         description="Capture a specific monitor by ID (0 = primary). Use vision_list_monitors first to see available monitors.",
         parameters={
@@ -101,7 +102,7 @@ def register_vision_tools(tool_manager: ToolManager, vision_engine: VisionEngine
             "image_base64": b64,
         })
 
-    @tool_manager.register_tool(
+    @tool_manager.tool(
         name="vision_analyze_image",
         description="Analyze an image (base64) for UI elements, text, and layout. Provide the base64-encoded image data.",
         parameters={
@@ -117,7 +118,7 @@ def register_vision_tools(tool_manager: ToolManager, vision_engine: VisionEngine
         observation = await vision_session.analyze_uploaded_image(image_data)
         return json.dumps(observation.to_structured(), default=str)
 
-    @tool_manager.register_tool(
+    @tool_manager.tool(
         name="vision_extract_text",
         description="Extract text from the screen using OCR. Returns all visible text with confidence scores.",
         parameters={
@@ -138,7 +139,7 @@ def register_vision_tools(tool_manager: ToolManager, vision_engine: VisionEngine
             "blocks": result.blocks,
         })
 
-    @tool_manager.register_tool(
+    @tool_manager.tool(
         name="vision_detect_ui_elements",
         description="Detect all UI elements on the screen — buttons, inputs, labels, headings, links, etc.",
         parameters={
@@ -154,7 +155,7 @@ def register_vision_tools(tool_manager: ToolManager, vision_engine: VisionEngine
         ]
         return json.dumps({"elements": elements, "count": len(elements)})
 
-    @tool_manager.register_tool(
+    @tool_manager.tool(
         name="vision_detect_objects",
         description="Detect objects in the screen capture (limited — uses OCR-based detection).",
         parameters={
@@ -170,7 +171,7 @@ def register_vision_tools(tool_manager: ToolManager, vision_engine: VisionEngine
         ]
         return json.dumps({"objects": objects, "count": len(objects)})
 
-    @tool_manager.register_tool(
+    @tool_manager.tool(
         name="vision_inspect_active_window",
         description="Inspect the currently active window — capture, OCR, and detect UI elements in one call.",
         parameters={

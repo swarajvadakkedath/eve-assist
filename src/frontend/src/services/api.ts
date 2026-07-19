@@ -49,6 +49,17 @@ export const api = {
         body: JSON.stringify({ query, limit }),
       }),
     get: (id: string) => request(`/capabilities/${id}`),
+    rank: (query: string, limit = 10) =>
+      request("/capabilities/rank", {
+        method: "POST",
+        body: JSON.stringify({ query, limit }),
+      }),
+    recommend: (id: string, maxResults = 5) =>
+      request(`/capabilities/${id}/recommend?max_results=${maxResults}`),
+    filterByInterface: (interfaceName: string) =>
+      request(`/capabilities/filter/by-interface/${interfaceName}`),
+    filterByPermission: (minLevel = 0, maxLevel?: number) =>
+      request(`/capabilities/filter/by-permission?min_level=${minLevel}${maxLevel !== undefined ? `&max_level=${maxLevel}` : ""}`),
   },
   settings: {
     get: () => request("/settings"),

@@ -1,9 +1,11 @@
 """Tool Manager — tool registration, validation, and execution."""
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 from aios.core.permission_manager import PermissionLevel, PermissionManager
+from aios.core.capability_registry import CapabilityRegistry, Capability
 
 
 @dataclass
@@ -30,13 +32,65 @@ class ToolResult:
     warnings: list[str] = field(default_factory=list)
 
 
+def _contract_to_capability(contract: ToolContract) -> Capability:
+    return Capability(
+        id=contract.id,
+        name=contract.name,
+        description=contract.description,
+        provider_type="tool",
+        provider_id="tool_manager",
+        parameters=contract.parameters,
+        returns=contract.returns,
+        permission_level=int(contract.permission_level),
+        tags=contract.tags,
+        version="1.0.0",
+        quality=1.0,
+        requires_confirmation=contract.requires_confirmation,
+        supported_interfaces=["chat"],
+        related_capabilities=contract.capabilities,
+    )
+
+
 class ToolManager:
-    def __init__(self, permission_manager: PermissionManager):
+    def __init__(self, permission_manager: PermissionManager, capability_registry: CapabilityRegistry | None = None):
         self._tools: dict[str, tuple[ToolContract, Callable]] = {}
         self._permission_manager = permission_manager
+        self._capability_registry = capability_registry
+
+    def tool(self, name: str = "", description: str = "", **kwargs) -> Callable:
+        """Decorator-based tool registration.
+
+        Usage::
+
+            @tm.tool(name="my_tool", description="...", parameters={...})
+            async def my_handler(params: dict) -> str: ...
+
+        Accepted kwargs: parameters, returns, permission_level, timeout,
+        requires_confirmation, category, tags, capabilities.
+        """
+        def decorator(handler: Callable) -> Callable:
+            contract = ToolContract(
+                id=name or handler.__name__,
+                name=name or handler.__name__,
+                description=description,
+                parameters=kwargs.get("parameters", {}),
+                returns=kwargs.get("returns", {}),
+                permission_level=kwargs.get("permission_level", PermissionLevel.READ),
+                timeout=kwargs.get("timeout", 30),
+                requires_confirmation=kwargs.get("requires_confirmation", False),
+                category=kwargs.get("category", "general"),
+                tags=kwargs.get("tags", []),
+                capabilities=kwargs.get("capabilities", [name or handler.__name__]),
+            )
+            asyncio.create_task(self.register_tool(contract, handler))
+            return handler
+        return decorator
 
     async def register_tool(self, contract: ToolContract, handler: Callable) -> None:
         self._tools[contract.id] = (contract, handler)
+        if self._capability_registry:
+            cap = _contract_to_capability(contract)
+            await self._capability_registry.register_capability(cap)
 
     async def unregister_tool(self, tool_id: str) -> None:
         self._tools.pop(tool_id, None)
