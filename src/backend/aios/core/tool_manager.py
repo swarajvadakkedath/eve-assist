@@ -38,7 +38,7 @@ def _contract_to_capability(contract: ToolContract) -> Capability:
         name=contract.name,
         description=contract.description,
         provider_type="tool",
-        provider_id="tool_manager",
+        provider_id=contract.id,
         parameters=contract.parameters,
         returns=contract.returns,
         permission_level=int(contract.permission_level),

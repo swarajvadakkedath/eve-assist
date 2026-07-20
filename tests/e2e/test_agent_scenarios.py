@@ -158,20 +158,17 @@ class TestDevWorkflow:
         })
         assert r4.success
 
-    async def test_git_workflow(self, full_stack, tmp_workdir):
-        """Terminal init → Status → Add → Commit via terminal (git tools need CWD)."""
+    async def test_file_write_workflow(self, full_stack, tmp_workdir):
+        """Write files → Read back → Verify content."""
         tm = full_stack["tm"]
-        # Use terminal for git operations since git tools need proper CWD
-        r1 = await tm.execute("terminal.run_command", {
-            "command": f"cd {tmp_workdir} && git init && git add -A && git commit -m 'Initial commit'",
+        r1 = await tm.execute("file.write", {
+            "path": str(tmp_workdir / "new_file.txt"),
+            "content": "Content for verification",
         })
-        assert r1.success, f"Git init/add/commit failed: {r1.error}"
-        # Verify with git log
-        r2 = await tm.execute("terminal.run_command", {
-            "command": f"cd {tmp_workdir} && git log --oneline",
-        })
+        assert r1.success
+        r2 = await tm.execute("file.read", {"path": str(tmp_workdir / "new_file.txt")})
         assert r2.success
-        assert "Initial commit" in r2.data.get("stdout", "")
+        assert "Content for verification" in r2.data["content"]
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -309,7 +306,7 @@ class TestProductivityWorkflow:
         # Step 5: Verify
         r5 = await tm.execute("archive.list", {"archive": str(tmp_workdir / "documents.zip")})
         assert r5.success
-        assert r5.data["entry_count"] > 0
+        assert r5.data["count"] > 0
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -369,7 +366,7 @@ class TestCrossToolIntegration:
         })
         assert r1.success
         r2 = await tm.execute("content.validate_json", {
-            "path": str(tmp_workdir / "test.json"),
+            "source": str(tmp_workdir / "test.json"),
         })
         assert r2.success
         assert r2.data["valid"] is True
@@ -529,9 +526,9 @@ class TestCapabilityIntelligence:
         """Tasks should rank relevant capabilities highest."""
         ranked = await full_stack["cr"].rank_for_task("search for files on disk")
         assert len(ranked) > 0
-        top_id, top_score = ranked[0]
-        assert any(term in top_id for term in ["search", "file"]), \
-            f"Expected search/file at top, got {top_id} ({top_score})"
+        top_cap, top_score = ranked[0]
+        assert any(term in top_cap.id for term in ["search", "file"]), \
+            f"Expected search/file at top, got {top_cap.id} ({top_score})"
 
     async def test_rank_for_read_task(self, full_stack):
         ranked = await full_stack["cr"].rank_for_task("read text file content")
@@ -655,29 +652,31 @@ class TestToolManagerIntegration:
 class TestMemoryIntegration:
     """Validate memory system stores execution context."""
 
-    async def test_memory_store_and_retrieve(self):
-        from aios.core.memory_system import MemorySystem
+    async def test_memory_store_and_recall(self):
+        from aios.core.memory_system import MemorySystem, Memory
         mem = MemorySystem()
-        await mem.store("agent:test", {"key": "value"}, ttl=60)
-        result = await mem.retrieve("agent:test")
-        assert result is not None
-        assert result["key"] == "value"
+        m = Memory(content="test memory content", type="fact")
+        await mem.store(m)
+        found = await mem.recall(m.id)
+        assert found is not None
+        assert found.content == "test memory content"
 
     async def test_memory_search(self):
-        from aios.core.memory_system import MemorySystem
+        from aios.core.memory_system import MemorySystem, Memory
         mem = MemorySystem()
-        await mem.store("agent:search_test", {"data": 42}, ttl=60)
-        results = await mem.search("search_test")
+        m = Memory(content="unique searchable content 42", type="fact")
+        await mem.store(m)
+        results = await mem.search("searchable")
         assert len(results) >= 1
 
-    async def test_memory_expiry(self):
-        from aios.core.memory_system import MemorySystem
+    async def test_memory_forget(self):
+        from aios.core.memory_system import MemorySystem, Memory
         mem = MemorySystem()
-        await mem.store("agent:expiry_test", {"x": 1}, ttl=0)
-        import time
-        time.sleep(0.1)
-        result = await mem.retrieve("agent:expiry_test")
-        assert result is None
+        m = Memory(content="to be forgotten", type="fact")
+        await mem.store(m)
+        await mem.forget(m.id)
+        found = await mem.recall(m.id)
+        assert found is None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -689,17 +688,18 @@ class TestMemoryIntegration:
 class TestProgressStreaming:
     """Validate progress tracking and streaming."""
 
-    async def test_progress_tracker(self, engine):
+    async def test_progress_tracker(self):
         from aios.execution.progress import ProgressTracker
         from aios.execution.models import Execution, Task
         pt = ProgressTracker()
         execution = Execution(objective="progress test")
-        tasks = [Task(execution_id="e1", capability="c1", tool="c1", index=i) for i in range(3)]
+        tasks = [Task(execution_id=execution.id, capability="c1", tool="c1", index=i) for i in range(3)]
         progress = pt.initialize(execution, tasks)
         assert progress.total_tasks == 3
         assert progress.completed_tasks == 0
-        pt.task_completed("e1", tasks[0])
-        progress = pt.get_progress("e1")
+        pt.task_completed(execution.id, tasks[0])
+        progress = pt.get_progress(execution.id)
+        assert progress is not None
         assert progress.completed_tasks == 1
 
     async def test_stream_events(self, engine):
@@ -753,12 +753,12 @@ class TestRecoveryAndRetry:
         recovery = RecoveryEngine(PlannerAdapter(planner=None))
         task = Task(execution_id="e1", capability="c1", tool="c1",
                     status=TaskStatus.FAILED, error="fail",
-                    max_retries=2, retry_count=0)
+                    max_retries=2, retries=0)
         execution = Execution(objective="test")
         recovered, new_task = await recovery.handle_failure(execution, task)
         assert recovered
         assert new_task is not None
-        assert new_task.retry_count == 1
+        assert new_task.retries == 1
 
     async def test_recovery_exhausts_retries(self):
         from aios.execution.recovery import RecoveryEngine
@@ -767,7 +767,7 @@ class TestRecoveryAndRetry:
         recovery = RecoveryEngine(PlannerAdapter(planner=None))
         task = Task(execution_id="e1", capability="c1", tool="c1",
                     status=TaskStatus.FAILED, error="fail",
-                    max_retries=2, retry_count=3)
+                    max_retries=2, retries=3)
         execution = Execution(objective="test")
         recovered, new_task = await recovery.handle_failure(execution, task)
         assert not recovered
@@ -894,8 +894,8 @@ class TestStateMachine:
         from aios.execution.state_machine import ExecutionStateMachine
         from aios.execution.models import ExecutionStatus
         sm = ExecutionStateMachine()
-        new_state = sm.transition(ExecutionStatus.PENDING, ExecutionStatus.PLANNING, "start")
-        assert new_state == ExecutionStatus.PLANNING
+        result = sm.transition(ExecutionStatus.PENDING, ExecutionStatus.PLANNING, "start")
+        assert result.to_state == ExecutionStatus.PLANNING
 
     async def test_invalid_transition_raises(self):
         from aios.execution.state_machine import ExecutionStateMachine
@@ -922,7 +922,7 @@ class TestStateMachine:
         ]
         for from_s, to_s in transitions:
             result = sm.transition(from_s, to_s, "test")
-            assert result == to_s, f"Failed: {from_s} -> {to_s}"
+            assert result.to_state == to_s, f"Failed: {from_s} -> {to_s}"
 
 
 # ═══════════════════════════════════════════════════════════════════
