@@ -34,14 +34,13 @@ class FakeMemory:
 
 class FakePlanner:
     async def create_plan(self, request, context=None):
-        from aios.core.planner import Plan
+        from aios.core.planner import Plan, Step
         plan = Plan(request=request)
-        plan.steps = []
+        if "file" in request.lower():
+            plan.steps = [Step(capability="file.read", params={"path": "test.txt"})]
+        else:
+            plan.steps = []
         return plan
-
-    async def execute_plan(self, plan):
-        from aios.core.planner import PlanResult
-        return PlanResult(success=True, plan=plan)
 
 
 class FakeToolManager:
@@ -71,6 +70,40 @@ def manager():
         planner=FakePlanner(),
         tool_manager=FakeToolManager(),
         context_engine=FakeContextEngine(),
+    )
+
+
+class FakeExecutionEngine:
+    async def execute_plan(self, plan, objective, conversation_id, owner="", priority=1):
+        from aios.execution.models import Execution, ExecutionStatus
+        return Execution(id="exec-123", status=ExecutionStatus.COMPLETED)
+
+    async def wait_for_execution(self, execution_id):
+        pass
+
+    async def get_execution_result(self, execution_id):
+        from aios.execution.models import ExecutionResult
+        return ExecutionResult(success=True)
+
+    async def get_execution_progress(self, execution_id):
+        from aios.execution.models import ExecutionProgress
+        return ExecutionProgress(total_tasks=1, completed_tasks=1, percentage=100.0)
+
+    async def stream_events(self, execution_id):
+        async def _gen():
+            yield {"type": "progress", "data": "task 1"}
+        return _gen()
+
+
+@pytest.fixture
+def manager_with_execution():
+    return ConversationManager(
+        ai_router=FakeAIRouter(),
+        memory_system=FakeMemory(),
+        planner=FakePlanner(),
+        tool_manager=FakeToolManager(),
+        context_engine=FakeContextEngine(),
+        execution_engine=FakeExecutionEngine(),
     )
 
 
@@ -142,3 +175,46 @@ class TestConversationManager:
         async for event in manager.stream_message(conv.id, "Hello"):
             events.append(event)
         assert len(events) > 0
+
+    @pytest.mark.asyncio
+    async def test_send_message_intent_detection(self, manager):
+        conv = await manager.create_conversation(title="Intent Test")
+        
+        # Test question intent
+        response1 = await manager.send_message(conv.id, "How are you?")
+        assert response1.detected_intent == "question"
+        assert response1.generated_plan is None
+        
+        # Test tool intent
+        response2 = await manager.send_message(conv.id, "Read file test.txt")
+        assert response2.detected_intent == "file"
+        assert response2.generated_plan is not None
+        assert "file.read" in response2.selected_capabilities
+
+    @pytest.mark.asyncio
+    async def test_stream_message_intent_detection(self, manager):
+        conv = await manager.create_conversation(title="Intent Stream Test")
+        
+        # Test tool intent in streaming
+        events = []
+        async for event in manager.stream_message(conv.id, "Read file test.txt"):
+            events.append(event)
+        
+        # Check if the final message has the intent
+        history = await manager.get_history(conv.id)
+        assistant_msg = next((m for m in history if m.role == MessageRole.ASSISTANT), None)
+        assert assistant_msg is not None
+        assert assistant_msg.detected_intent == "file"
+        assert assistant_msg.generated_plan is not None
+        assert "file.read" in assistant_msg.selected_capabilities
+
+    @pytest.mark.asyncio
+    async def test_send_message_execution_context(self, manager_with_execution):
+        conv = await manager_with_execution.create_conversation(title="Execution Test")
+        
+        # Test tool intent with execution
+        response = await manager_with_execution.send_message(conv.id, "Read file test.txt")
+        
+        assert response.execution_context is not None
+        assert response.execution_context.execution_id == "exec-123"
+        assert response.execution_context.status == "completed"

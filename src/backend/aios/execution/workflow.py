@@ -43,6 +43,10 @@ class WorkflowBuilder:
                 }
                 for t in tasks
             ],
+            tools_executed=list({t.tool for t in tasks if t.tool}),
+            capabilities_used=list({t.capability for t in tasks if t.capability}),
+            retry_count=sum(t.retries for t in tasks),
+            permission_requests=sum(1 for t in tasks if t.permission_request_id),
         )
         if result.failed_count > 0:
             result.errors = [t.error for t in tasks if t.status == TaskStatus.FAILED and t.error]

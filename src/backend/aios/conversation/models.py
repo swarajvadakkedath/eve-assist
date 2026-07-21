@@ -65,6 +65,35 @@ class EditEntry:
 
 
 @dataclass
+class PlanningContext:
+    intent: str | None = None
+    plan: Any | None = None
+    selected_capabilities: list[str] = field(default_factory=list)
+    planning_time_ms: float | None = None
+    planner_version: str | None = None
+
+
+@dataclass
+class ExecutionContext:
+    execution_id: str | None = None
+    status: str | None = None
+    current_step: int = 0
+    completed_steps: int = 0
+    total_steps: int = 0
+    progress: float = 0.0
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_ms: float | None = None
+    error: str | None = None
+    cancelled: bool = False
+    tools_executed: list[str] = field(default_factory=list)
+    capabilities_used: list[str] = field(default_factory=list)
+    retry_count: int = 0
+    permission_requests: int = 0
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Message:
     id: str = ""
     conversation_id: str = ""
@@ -79,6 +108,20 @@ class Message:
     edit_history: list[EditEntry] = field(default_factory=list)
     is_regenerated: bool = False
     latency_ms: float = 0.0
+    planning_context: PlanningContext | None = None
+    execution_context: ExecutionContext | None = None
+
+    @property
+    def detected_intent(self) -> str | None:
+        return self.planning_context.intent if self.planning_context else None
+
+    @property
+    def generated_plan(self) -> Any | None:
+        return self.planning_context.plan if self.planning_context else None
+
+    @property
+    def selected_capabilities(self) -> list[str]:
+        return self.planning_context.selected_capabilities if self.planning_context else []
 
     def __post_init__(self):
         if not self.id:

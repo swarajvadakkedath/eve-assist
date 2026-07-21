@@ -14,14 +14,15 @@ from aios.conversation.models import (
     ToolCallStatus,
     StreamEventType,
     EditEntry,
+    PlanningContext,
+    ExecutionContext,
 )
+from aios.execution.models import ExecutionStatus
 from aios.conversation.interfaces import IConversationService
 from aios.conversation.exceptions import (
     ConversationNotFoundError,
     AIProviderError,
-    ToolExecutionError,
     MemoryError,
-    PlannerError,
     StreamError,
 )
 from aios.conversation.prompts import (
@@ -71,6 +72,7 @@ class ConversationManager(IConversationService):
         capability_registry: Any | None = None,
         context_engine: Any | None = None,
         repository: Any | None = None,
+        execution_engine: Any | None = None,
     ):
         self._ai_router = ai_router
         self._memory = memory_system
@@ -79,6 +81,7 @@ class ConversationManager(IConversationService):
         self._capability_registry = capability_registry
         self._context_engine = context_engine
         self._repository = repository
+        self._execution_engine = execution_engine
 
         self._conversations: dict[str, Conversation] = {}
         self._messages: dict[str, list[Message]] = {}
@@ -340,6 +343,7 @@ class ConversationManager(IConversationService):
     async def send_message(self, conversation_id: str, content: str) -> Message:
         conv = await self.get_conversation(conversation_id)
         start_time = time.monotonic()
+        intent = await self._detect_intent(content)
 
         user_msg = Message(
             conversation_id=conversation_id,
@@ -353,36 +357,45 @@ class ConversationManager(IConversationService):
             except Exception as e:
                 logger.error("conversation.repository_add_message_failed", error=str(e))
 
-        try:
-            context = await self._gather_context(conversation_id)
-        except Exception as e:
-            logger.error("conversation.context_gather_failed", error=str(e))
-            context = {}
-
-        try:
-            memories = await self._retrieve_memories(content, conversation_id)
-        except Exception as e:
-            logger.error("conversation.memory_retrieve_failed", error=str(e))
-            memories = []
-
-        try:
-            plan = await self._planner.create_plan(content, context) if self._planner else None
-        except Exception as e:
-            logger.error("conversation.planner_failed", error=str(e))
-            plan = None
-
-        tool_results = []
-        tool_count = 0
-        if plan and plan.steps:
-            try:
-                tool_results = await self._execute_plan(plan, conversation_id)
-                tool_count = len(plan.steps)
-            except Exception as e:
-                logger.error("conversation.plan_execution_failed", error=str(e))
+        context = await self._safe_gather_context(conversation_id)
+        memories = await self._safe_retrieve_memories(content, conversation_id)
+        
+        plan = None
+        selected_capabilities = []
+        execution_ctx = None
+        if intent not in ["conversation", "question"]:
+            plan = await self._planner.create_plan(content, context)
+            if plan and plan.steps:
+                selected_capabilities = [step.capability for step in plan.steps]
+                
+                if self._execution_engine:
+                    execution = await self._execution_engine.execute_plan(
+                        plan, content, conversation_id
+                    )
+                    await self._execution_engine.wait_for_execution(execution.id)
+                    result = await self._execution_engine.get_execution_result(execution.id)
+                    progress = await self._execution_engine.get_execution_progress(execution.id)
+                    execution_ctx = ExecutionContext(
+                        execution_id=execution.id,
+                        status=execution.status.value,
+                        current_step=progress.completed_tasks,
+                        completed_steps=progress.completed_tasks,
+                        total_steps=progress.total_tasks,
+                        progress=progress.percentage,
+                        error=result.errors[0] if result and result.errors else None,
+                        started_at=execution.started_at,
+                        completed_at=execution.completed_at,
+                        duration_ms=result.duration_ms if result else None,
+                        tools_executed=result.tools_executed if result else [],
+                        capabilities_used=result.capabilities_used if result else [],
+                        retry_count=result.retry_count if result else 0,
+                        permission_requests=result.permission_requests if result else 0,
+                        warnings=result.warnings if result else [],
+                        cancelled=execution.status == ExecutionStatus.CANCELLED,
+                    )
 
         history = self._messages.get(conversation_id, [])
         context_window = await self._history_manager.build_context_window(history, memories)
-        context_size = len(context_window)
 
         llm_messages = messages_to_llm_format(
             context_window,
@@ -411,10 +424,13 @@ class ConversationManager(IConversationService):
             content=ai_response.content,
             tokens_used=ai_response.tokens_used,
             latency_ms=latency_ms,
+            planning_context=PlanningContext(
+                intent=intent,
+                plan=plan,
+                selected_capabilities=selected_capabilities,
+            ),
+            execution_context=execution_ctx,
         )
-
-        if tool_results:
-            assistant_msg.tool_results = tool_results
 
         self._add_message(conversation_id, assistant_msg)
         if self._repository:
@@ -427,19 +443,6 @@ class ConversationManager(IConversationService):
         conv.updated_at = datetime.utcnow()
         conv.message_count = len(self._messages.get(conversation_id, [])) // 2
 
-        await self._analytics.record(
-            conversation_id=conversation_id,
-            provider=ai_response.provider,
-            model=ai_response.model,
-            prompt_tokens=ai_response.tokens_used,
-            completion_tokens=ai_response.tokens_used,
-            latency_ms=latency_ms,
-            tool_count=tool_count,
-            memory_count=len(memories),
-            planner_count=1 if plan else 0,
-            context_size=context_size,
-        )
-
         await self.ensure_title(conversation_id)
         await self.reindex_conversation(conversation_id)
 
@@ -448,6 +451,7 @@ class ConversationManager(IConversationService):
     async def stream_message(self, conversation_id: str, content: str) -> AsyncIterator[dict]:
         conv = await self.get_conversation(conversation_id)
         start_time = time.monotonic()
+        intent = await self._detect_intent(content)
 
         user_msg = Message(
             conversation_id=conversation_id,
@@ -461,47 +465,50 @@ class ConversationManager(IConversationService):
             except Exception as e:
                 logger.error("conversation.repository_add_message_failed", error=str(e))
 
-        yield create_status_event("understanding", "Understanding your request...")
+        yield create_status_event("understanding", f"Detected intent: {intent}")
 
         context = await self._safe_gather_context(conversation_id)
-        if context:
-            yield create_status_event("gathering_context", "Gathering context...")
-        yield create_context_loaded_event(len(context))
-
-        yield create_status_event("searching_memory", "Searching memory...")
         memories = await self._safe_retrieve_memories(content, conversation_id)
-        if memories:
-            yield create_memory_retrieval_event(content, len(memories))
+        
+        plan = None
+        selected_capabilities = []
+        execution_ctx = None
+        if intent not in ["conversation", "question"]:
+            plan = await self._safe_create_plan(content, context)
+            if plan and plan.steps:
+                selected_capabilities = [step.capability for step in plan.steps]
+                yield create_planner_started_event(content)
 
-        yield create_status_event("planning", "Planning task...")
-        plan = await self._safe_create_plan(content, context)
-        if plan:
-            yield create_planner_started_event(content)
-            yield create_status_event("selecting_tools", "Selecting tools...")
+                if self._execution_engine:
+                    execution = await self._execution_engine.execute_plan(plan, content, conversation_id)
 
-        tool_results = []
-        if plan and plan.steps:
-            for step in plan.steps:
-                yield create_tool_requested_event(step.capability, step.capability)
-                yield create_status_event("executing_tool", f"Executing {step.capability}...")
-                yield create_tool_running_event(step.capability)
+                    async for event in self._execution_engine.stream_events(execution.id):
+                        yield create_status_event("executing_tool", str(event))
 
-                tool_start = time.monotonic()
-                tool_result = await self._safe_execute_step(step, conversation_id)
-                tool_duration = (time.monotonic() - tool_start) * 1000
+                    result = await self._execution_engine.get_execution_result(execution.id)
+                    progress = await self._execution_engine.get_execution_progress(execution.id)
+                    execution_ctx = ExecutionContext(
+                        execution_id=execution.id,
+                        status=execution.status.value,
+                        current_step=progress.completed_tasks,
+                        completed_steps=progress.completed_tasks,
+                        total_steps=progress.total_tasks,
+                        progress=progress.percentage,
+                        error=result.errors[0] if result and result.errors else None,
+                        started_at=execution.started_at,
+                        completed_at=execution.completed_at,
+                        duration_ms=result.duration_ms if result else None,
+                        tools_executed=result.tools_executed if result else [],
+                        capabilities_used=result.capabilities_used if result else [],
+                        retry_count=result.retry_count if result else 0,
+                        permission_requests=result.permission_requests if result else 0,
+                        warnings=result.warnings if result else [],
+                        cancelled=execution.status == ExecutionStatus.CANCELLED,
+                    )
 
-                yield create_tool_completed_event(
-                    step.capability,
-                    tool_result.get("success", False),
-                    tool_duration,
-                )
-                tool_results.append(tool_result)
-
-        yield create_planner_completed_event(len(plan.steps) if plan else 0)
 
         history = self._messages.get(conversation_id, [])
         context_window = await self._history_manager.build_context_window(history, memories)
-        context_size = len(context_window)
 
         llm_messages = messages_to_llm_format(
             context_window,
@@ -513,7 +520,6 @@ class ConversationManager(IConversationService):
         yield create_final_response_event()
         yield create_status_event("generating", "Generating response...")
 
-        stream_id = uuid4().hex
         full_content = ""
         tokens_used = 0
 
@@ -527,7 +533,7 @@ class ConversationManager(IConversationService):
                 })()
             )
 
-            async for event in self._stream_manager.stream(stream_id, token_gen):
+            async for event in self._stream_manager.stream(uuid4().hex, token_gen):
                 if event["type"] == StreamEventType.TOKEN.value:
                     full_content += event["data"]["token"]
                     tokens_used += 1
@@ -546,9 +552,13 @@ class ConversationManager(IConversationService):
             content=full_content,
             tokens_used=tokens_used,
             latency_ms=latency_ms,
+            planning_context=PlanningContext(
+                intent=intent,
+                plan=plan,
+                selected_capabilities=selected_capabilities,
+            ),
+            execution_context=execution_ctx,
         )
-        if tool_results:
-            assistant_msg.tool_results = tool_results
 
         self._add_message(conversation_id, assistant_msg)
         if self._repository:
@@ -561,25 +571,7 @@ class ConversationManager(IConversationService):
         conv.updated_at = datetime.utcnow()
         conv.message_count = len(self._messages.get(conversation_id, [])) // 2
 
-        await self._analytics.record(
-            conversation_id=conversation_id,
-            latency_ms=latency_ms,
-            completion_tokens=tokens_used,
-            tool_count=len(tool_results),
-            memory_count=len(memories),
-            planner_count=1 if plan else 0,
-            context_size=context_size,
-        )
-
-        provider_info = await self._analytics.get_conversation_summary(conversation_id)
-        if provider_info:
-            yield create_analytics_event(provider_info)
-
         await self.ensure_title(conversation_id)
-        new_title = conv.title
-        if new_title:
-            yield create_title_generated_event(new_title)
-
         await self.reindex_conversation(conversation_id)
 
     async def get_history(self, conversation_id: str, limit: int = 100, offset: int = 0) -> list[Message]:
@@ -595,6 +587,29 @@ class ConversationManager(IConversationService):
                 logger.error("conversation.clear_history_failed", error=str(e))
 
     # ── Internal Helpers ───────────────────────────────────────────
+
+    async def _detect_intent(self, content: str) -> str:
+        content_lower = content.lower()
+        if any(word in content_lower for word in ["what", "who", "where", "when", "why", "how"]):
+            return "question"
+        
+        tool_keywords = {
+            "workflow": ["workflow", "automate", "process"],
+            "browser": ["browser", "web", "http", "download"],
+            "file": ["file", "read", "write", "create", "delete", "directory"],
+            "git": ["git", "repository", "commit", "push", "pull", "branch"],
+            "desktop": ["desktop", "window", "tray", "notification"],
+            "research": ["research", "analyze", "summarize"]
+        }
+        
+        for intent, keywords in tool_keywords.items():
+            if any(kw in content_lower for kw in keywords):
+                return intent
+                
+        if any(kw in content_lower for kw in ["run", "execute", "tool"]):
+            return "tool_execution"
+            
+        return "conversation"
 
     def _add_message(self, conversation_id: str, message: Message) -> None:
         self._messages.setdefault(conversation_id, []).append(message)
@@ -631,48 +646,6 @@ class ConversationManager(IConversationService):
             return await self._retrieve_memories(query, conversation_id)
         except Exception:
             return []
-
-    async def _execute_plan(self, plan: Any, conversation_id: str) -> list[dict]:
-        if not self._tool_manager:
-            return []
-        results = []
-        for step in plan.steps:
-            try:
-                tool_result = await self._tool_manager.execute(step.capability, step.params)
-                results.append({
-                    "tool_name": step.capability,
-                    "result": tool_result.data if tool_result.success else {"error": tool_result.error},
-                    "success": tool_result.success,
-                    "duration": tool_result.duration,
-                })
-            except Exception as e:
-                results.append({
-                    "tool_name": step.capability,
-                    "result": {"error": str(e)},
-                    "success": False,
-                    "duration": 0.0,
-                })
-        return results
-
-    async def _safe_execute_plan(self, plan: Any, conversation_id: str) -> list[dict]:
-        try:
-            return await self._execute_plan(plan, conversation_id)
-        except Exception:
-            return []
-
-    async def _safe_execute_step(self, step: Any, conversation_id: str) -> dict:
-        if not self._tool_manager:
-            return {"tool_name": step.capability, "success": False, "result": {"error": "No tool manager"}}
-        try:
-            tool_result = await self._tool_manager.execute(step.capability, step.params)
-            return {
-                "tool_name": step.capability,
-                "result": tool_result.data if tool_result.success else {"error": tool_result.error},
-                "success": tool_result.success,
-                "duration": tool_result.duration,
-            }
-        except Exception as e:
-            return {"tool_name": step.capability, "success": False, "result": {"error": str(e)}, "duration": 0.0}
 
     async def _safe_create_plan(self, content: str, context: dict) -> Any | None:
         if not self._planner:

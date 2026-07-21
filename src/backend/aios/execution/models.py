@@ -102,6 +102,10 @@ class ExecutionResult:
     completed_count: int = 0
     failed_count: int = 0
     skipped_count: int = 0
+    tools_executed: list[str] = field(default_factory=list)
+    capabilities_used: list[str] = field(default_factory=list)
+    retry_count: int = 0
+    permission_requests: int = 0
 
 
 @dataclass

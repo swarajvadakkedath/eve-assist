@@ -52,6 +52,12 @@ class ExecutionEngine:
 
         self._active_executions: dict[str, asyncio.Task] = {}
 
+    async def wait_for_execution(self, execution_id: str) -> None:
+        task = self._active_executions.get(execution_id)
+        if task:
+            await task
+            self._active_executions.pop(execution_id, None)
+
     async def start_execution(
         self,
         objective: str,
@@ -75,41 +81,37 @@ class ExecutionEngine:
         logger.info("engine.execution_started", execution_id=execution.id, objective=objective[:100])
         return execution
 
-    async def _run_execution(self, execution: Execution) -> None:
-        start_time = time.monotonic()
+    async def execute_plan(
+        self,
+        plan: Any,
+        objective: str,
+        conversation_id: str = "",
+        owner: str = "",
+        priority: int = 1,
+    ) -> Execution:
+        execution = Execution(
+            objective=objective,
+            conversation_id=conversation_id,
+            owner=owner,
+            priority=Priority(priority),
+            status=ExecutionStatus.PENDING,
+            plan_id=plan.id,
+        )
+        await self._repository.save_execution(execution)
+        await self._events.execution_created(execution.id, objective, priority)
+
+        run_task = asyncio.create_task(self._run_execution_with_plan(execution, plan))
+        self._active_executions[execution.id] = run_task
+
+        logger.info("engine.execution_started_with_plan", execution_id=execution.id, plan_id=plan.id)
+        return execution
+
+    async def _execute_tasks(
+        self, execution: Execution, tasks: list, start_time: float
+    ) -> None:
         try:
-            transition = self._state_machine.transition(
-                execution.status, ExecutionStatus.PLANNING, "Starting execution"
-            )
-            execution.status = ExecutionStatus.PLANNING
-            await self._repository.save_execution(execution)
-
-            plan = await self._planner_adapter.create_plan(
-                execution.objective,
-                {"execution_id": execution.id, "conversation_id": execution.conversation_id},
-            )
-
-            if not plan:
-                execution.status = ExecutionStatus.FAILED
-                execution.completed_at = datetime.utcnow()
-                await self._repository.save_execution(execution)
-                await self._events.execution_failed(execution.id, "Failed to create plan")
-                return
-
-            execution.plan_id = plan.id
-            tasks = self._workflow.build_tasks(execution, plan)
-
-            if not tasks:
-                execution.status = ExecutionStatus.FAILED
-                execution.completed_at = datetime.utcnow()
-                await self._repository.save_execution(execution)
-                await self._events.execution_failed(execution.id, "No tasks in plan")
-                return
-
-            execution.status = ExecutionStatus.READY
-            await self._repository.save_execution(execution)
-
-            progress = self._progress.initialize(execution, tasks)
+            for task in tasks:
+                self._progress.initialize(execution, tasks)
 
             execution.status = ExecutionStatus.RUNNING
             execution.started_at = datetime.utcnow()
@@ -177,7 +179,7 @@ class ExecutionEngine:
             execution.status = ExecutionStatus.CANCELLED
             execution.completed_at = datetime.utcnow()
             await self._repository.save_execution(execution)
-            return
+            raise
 
         except Exception as e:
             logger.error("engine.execution_failed", execution_id=execution.id, error=str(e))
@@ -185,6 +187,84 @@ class ExecutionEngine:
             execution.completed_at = datetime.utcnow()
             await self._repository.save_execution(execution)
             await self._events.execution_failed(execution.id, str(e))
+            raise
+
+    async def _run_execution_with_plan(self, execution: Execution, plan: Any) -> None:
+        start_time = time.monotonic()
+        try:
+            self._state_machine.transition(
+                execution.status, ExecutionStatus.READY, "Starting execution with plan"
+            )
+            execution.status = ExecutionStatus.READY
+            await self._repository.save_execution(execution)
+
+            tasks = self._workflow.build_tasks(execution, plan)
+
+            if not tasks:
+                execution.status = ExecutionStatus.FAILED
+                execution.completed_at = datetime.utcnow()
+                await self._repository.save_execution(execution)
+                await self._events.execution_failed(execution.id, "No tasks in plan")
+                return
+
+            await self._execute_tasks(execution, tasks, start_time)
+
+        except asyncio.CancelledError:
+            execution.status = ExecutionStatus.CANCELLED
+            execution.completed_at = datetime.utcnow()
+            await self._repository.save_execution(execution)
+            return
+
+        except Exception:
+            pass
+
+        finally:
+            await self._scheduler.cleanup(execution.id)
+
+    async def _run_execution(self, execution: Execution) -> None:
+        start_time = time.monotonic()
+        try:
+            self._state_machine.transition(
+                execution.status, ExecutionStatus.PLANNING, "Starting execution"
+            )
+            execution.status = ExecutionStatus.PLANNING
+            await self._repository.save_execution(execution)
+
+            plan = await self._planner_adapter.create_plan(
+                execution.objective,
+                {"execution_id": execution.id, "conversation_id": execution.conversation_id},
+            )
+
+            if not plan:
+                execution.status = ExecutionStatus.FAILED
+                execution.completed_at = datetime.utcnow()
+                await self._repository.save_execution(execution)
+                await self._events.execution_failed(execution.id, "Failed to create plan")
+                return
+
+            execution.plan_id = plan.id
+            tasks = self._workflow.build_tasks(execution, plan)
+
+            if not tasks:
+                execution.status = ExecutionStatus.FAILED
+                execution.completed_at = datetime.utcnow()
+                await self._repository.save_execution(execution)
+                await self._events.execution_failed(execution.id, "No tasks in plan")
+                return
+
+            execution.status = ExecutionStatus.READY
+            await self._repository.save_execution(execution)
+
+            await self._execute_tasks(execution, tasks, start_time)
+
+        except asyncio.CancelledError:
+            execution.status = ExecutionStatus.CANCELLED
+            execution.completed_at = datetime.utcnow()
+            await self._repository.save_execution(execution)
+            return
+
+        except Exception:
+            pass
 
         finally:
             await self._scheduler.cleanup(execution.id)

@@ -23,13 +23,6 @@ async def test_create_plan(planner):
 
 
 @pytest.mark.asyncio
-async def test_execute_plan(planner):
-    plan = await planner.create_plan("Test plan")
-    result = await planner.execute_plan(plan)
-    assert result.success is not None
-
-
-@pytest.mark.asyncio
 async def test_validate_plan(planner):
     plan = await planner.create_plan("Test plan")
     validation = await planner.validate_plan(plan)

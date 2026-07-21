@@ -95,13 +95,6 @@ class PlanValidation:
     required_permissions: list[int] = field(default_factory=list)
 
 
-@dataclass
-class PlanResult:
-    success: bool
-    plan: Plan
-    error: str | None = None
-
-
 class Planner:
     def __init__(self, capability_registry: CapabilityRegistry | None = None):
         self._plans: dict[str, Plan] = {}
@@ -146,19 +139,6 @@ class Planner:
 
         self._plans[plan.id] = plan
         return plan
-
-    async def execute_plan(self, plan: Plan) -> PlanResult:
-        for step in plan.steps:
-            step.status = StepStatus.RUNNING
-            try:
-                step.status = StepStatus.SUCCESS
-            except Exception as e:
-                step.status = StepStatus.FAILED
-                step.error = str(e)
-                return PlanResult(success=False, plan=plan, error=str(e))
-
-        plan.status = "completed"
-        return PlanResult(success=True, plan=plan)
 
     async def validate_plan(self, plan: Plan) -> PlanValidation:
         validation = PlanValidation()
