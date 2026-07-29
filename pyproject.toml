@@ -22,6 +22,8 @@ dependencies = [
     "pyttsx3>=2.90",
     "SpeechRecognition>=3.10.0",
     "pyyaml>=6.0",
+    "sse-starlette>=3.0.0",
+    "python-multipart>=0.0.12",
 ]
 
 [project.optional-dependencies]
@@ -34,7 +36,11 @@ dev = [
     "httpx>=0.27.0",
 ]
 
+[tool.setuptools.packages.find]
+where = ["src/backend"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+

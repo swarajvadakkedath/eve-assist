@@ -100,8 +100,16 @@ None found. Each event has a unique type and source.
 
 ---
 
+### Tool Events
+
+| Event | Source | Payload | Description |
+|-------|--------|---------|-------------|
+| `tool:started` | ToolManager | `{tool_id, params, timeout}` | Published when a tool begins execution |
+| `tool:completed` | ToolManager | `{tool_id, duration, success}` | Published when a tool completes successfully |
+| `tool:failed` | ToolManager | `{tool_id, duration, error}` | Published when a tool raises an exception |
+| `tool:timeout` | ToolManager | `{tool_id, duration, timeout}` | Published when a tool exceeds its timeout |
+
 ## Missing Events
 
 - `plugin:*` events — Plugin lifecycle events (installed, enabled, disabled, uninstalled) are not published. Should be added when Plugin SDK is completed.
 - `memory:*` events — Memory storage/retrieval events are not published. Would be useful for learning and analytics.
-- `tool:*` events — Tool execution events are not published. Would be useful for analytics and auditing.

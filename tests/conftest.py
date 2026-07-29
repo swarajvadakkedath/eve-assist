@@ -2,7 +2,6 @@
 
 import pytest
 from aios.core.event_bus import EventBus
-from aios.core.di_container import DIContainer
 from aios.core.permission_manager import PermissionManager
 from aios.core.tool_manager import ToolManager
 from aios.core.ai_router import AIRouter
@@ -54,8 +53,3 @@ def conversation():
 @pytest.fixture
 def capability_registry():
     return CapabilityRegistry()
-
-
-@pytest.fixture
-def di_container():
-    return DIContainer()

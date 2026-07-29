@@ -43,6 +43,11 @@ config/production.yaml
 logs/
 *.log
 
+# Launcher runtime state
+.eve_pids
+backend_err.log
+backend_out.log
+
 # Build
 target/
 out/

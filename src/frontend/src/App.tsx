@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
-import ChatWindow from "./components/chat/ChatWindow";
-import CommandPalette from "./components/desktop/CommandPalette";
+import ConversationView from "./components/conversation/ConversationView";
+import WorkspaceRegistry from "./components/workspace/WorkspaceRegistry";
+import type { WorkspaceDefinition } from "./components/workspace/WorkspaceRegistry";
+import { useCommandPalette } from "./components/command/CommandPalette";
 import SettingsPanel from "./components/desktop/SettingsPanel";
 import PluginManagerPanel from "./components/plugins/PluginManagerPanel";
 import ToolCenterPanel from "./components/tools/ToolCenterPanel";
@@ -16,10 +18,16 @@ import ScreenCaptureButton from "./components/vision/ScreenCaptureButton";
 import ObservationPanel from "./components/vision/ObservationPanel";
 import LivePreview from "./components/vision/LivePreview";
 import ImageUpload from "./components/vision/ImageUpload";
+import ActivityCenter from "./components/activity/ActivityCenter";
+
+const workspaces: WorkspaceDefinition[] = [
+  { id: "conversation", label: "Chat", icon: "\u{1F4AC}", component: ConversationView },
+  { id: "activity", label: "Activity", icon: "\u{1F4CB}", component: ActivityCenter },
+];
 
 function App() {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
-  const [commandOpen, setCommandOpen] = useState(false);
+  const [activeWorkspace, setActiveWorkspace] = useState("conversation");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -27,12 +35,57 @@ function App() {
   const [visionOpen, setVisionOpen] = useState(false);
   const [visionMode, setVisionMode] = useState<"observation" | "live" | "upload" | null>(null);
 
+  const handleVoiceToggle = async () => {
+    try {
+      const s = voiceService.state;
+      if (s.isListening) {
+        await voiceService.stopListening();
+      } else {
+        await voiceService.connect();
+        if (!s.sessionId) {
+          await voiceService.startSession();
+        }
+        await voiceService.startListening();
+      }
+    } catch (e) {
+      console.error("voice toggle error", e);
+    }
+  };
+
+  const handleNavigate = (action: string, payload?: string) => {
+    switch (action) {
+      case "settings": setSettingsOpen(true); break;
+      case "plugins": setPluginsOpen(true); break;
+      case "vision": setVisionOpen(true); setVisionMode("observation"); break;
+      case "theme": setTheme((t) => (t === "dark" ? "light" : "dark")); break;
+      case "new_conversation": window.dispatchEvent(new CustomEvent("aios:new-conversation")); break;
+      case "open_conversation":
+        if (payload) window.dispatchEvent(new CustomEvent("aios:open-conversation", { detail: { id: payload } }));
+        break;
+      case "clear": window.dispatchEvent(new CustomEvent("aios:clear-chat")); break;
+      case "help": window.dispatchEvent(new CustomEvent("aios:help")); break;
+      case "export": window.dispatchEvent(new CustomEvent("aios:export")); break;
+      case "search": window.dispatchEvent(new CustomEvent("aios:search")); break;
+      case "tools": setToolsOpen(true); break;
+      case "panel": window.dispatchEvent(new CustomEvent("aios:toggle-panel", { detail: { panel: payload } })); break;
+      case "command": window.dispatchEvent(new CustomEvent("aios:command", { detail: { command: payload } })); break;
+      case "url": window.open(payload, "_blank"); break;
+      case "conversation": if (payload === "new") window.dispatchEvent(new CustomEvent("aios:new-conversation")); break;
+      case "workspace":
+        if (payload && workspaces.some((w) => w.id === payload)) setActiveWorkspace(payload);
+        break;
+    }
+  };
+
+  const { renderPalette, openPalette } = useCommandPalette(
+    workspaces.map((w) => ({ id: w.id, label: w.label, icon: w.icon })),
+    handleNavigate,
+    (workspaceId) => setActiveWorkspace(workspaceId),
+    activeWorkspace,
+  );
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
-        e.preventDefault();
-        setCommandOpen((v) => !v);
-      }
       if ((e.ctrlKey || e.metaKey) && e.key === ",") {
         e.preventDefault();
         setSettingsOpen((v) => !v);
@@ -64,64 +117,6 @@ function App() {
     return () => { voiceService.disconnect(); };
   }, []);
 
-  const handleVoiceToggle = async () => {
-    try {
-      const s = voiceService.state;
-      if (s.isListening) {
-        await voiceService.stopListening();
-      } else {
-        await voiceService.connect();
-        if (!s.sessionId) {
-          await voiceService.startSession();
-        }
-        await voiceService.startListening();
-      }
-    } catch (e) {
-      console.error("voice toggle error", e);
-    }
-  };
-
-  const handleNavigate = (action: string, payload?: string) => {
-    switch (action) {
-      case "settings":
-        setSettingsOpen(true);
-        break;
-      case "plugins":
-        setPluginsOpen(true);
-        break;
-      case "vision":
-        setVisionOpen(true);
-        setVisionMode("observation");
-        break;
-      case "theme":
-        setTheme((t) => (t === "dark" ? "light" : "dark"));
-        break;
-      case "new_conversation":
-        window.dispatchEvent(new CustomEvent("aios:new-conversation"));
-        break;
-      case "open_conversation":
-        if (payload) {
-          window.dispatchEvent(new CustomEvent("aios:open-conversation", { detail: { id: payload } }));
-        }
-        break;
-      case "clear":
-        window.dispatchEvent(new CustomEvent("aios:clear-chat"));
-        break;
-      case "help":
-        window.dispatchEvent(new CustomEvent("aios:help"));
-        break;
-      case "export":
-        window.dispatchEvent(new CustomEvent("aios:export"));
-        break;
-      case "search":
-        window.dispatchEvent(new CustomEvent("aios:search"));
-        break;
-      case "tools":
-        setToolsOpen(true);
-        break;
-    }
-  };
-
   return (
     <div className={`app ${theme}`}>
       <div className="app-header">
@@ -144,7 +139,7 @@ function App() {
           <button className="btn-icon" onClick={() => setPluginsOpen(true)} title="Plugin Manager (Ctrl+P)">
             ■
           </button>
-          <button className="btn-icon" onClick={() => setCommandOpen(true)} title="Commands (Ctrl+K)">
+          <button className="btn-icon" onClick={() => openPalette()} title="Commands (Ctrl+K)">
             ⌘
           </button>
           <button className="btn-icon" onClick={() => setSettingsOpen(true)} title="Settings (Ctrl+,)">
@@ -152,10 +147,8 @@ function App() {
           </button>
         </div>
       </div>
-      <ChatWindow />
-      {commandOpen && (
-        <CommandPalette onClose={() => setCommandOpen(false)} onNavigate={handleNavigate} />
-      )}
+      <WorkspaceRegistry workspaces={workspaces} activeId={activeWorkspace} />
+      {renderPalette}
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       {toolsOpen && <ToolCenterPanel onClose={() => setToolsOpen(false)} />}
       {pluginsOpen && <PluginManagerPanel onClose={() => setPluginsOpen(false)} />}
@@ -195,3 +188,5 @@ function App() {
     </div>
   );
 }
+
+export default App;

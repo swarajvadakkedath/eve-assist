@@ -21,6 +21,7 @@ from aios.execution.models import ExecutionStatus
 from aios.conversation.interfaces import IConversationService
 from aios.conversation.exceptions import (
     ConversationNotFoundError,
+    MessageNotFoundError,
     AIProviderError,
     MemoryError,
     StreamError,
@@ -478,6 +479,7 @@ class ConversationManager(IConversationService):
             if plan and plan.steps:
                 selected_capabilities = [step.capability for step in plan.steps]
                 yield create_planner_started_event(content)
+                yield create_planner_completed_event(len(plan.steps))
 
                 if self._execution_engine:
                     execution = await self._execution_engine.execute_plan(plan, content, conversation_id)
@@ -505,6 +507,14 @@ class ConversationManager(IConversationService):
                         warnings=result.warnings if result else [],
                         cancelled=execution.status == ExecutionStatus.CANCELLED,
                     )
+
+                    if plan and plan.steps:
+                        for step in plan.steps:
+                            yield create_tool_requested_event(step.capability, step.capability)
+                            yield create_tool_running_event(step.capability)
+                            step_success = execution_ctx is not None and execution_ctx.error is None
+                            step_duration = (execution_ctx.duration_ms or 0) / max(len(plan.steps), 1) if execution_ctx else 0
+                            yield create_tool_completed_event(step.capability, step_success, step_duration)
 
 
         history = self._messages.get(conversation_id, [])

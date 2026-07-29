@@ -33,6 +33,7 @@ class AiosSettings(BaseSettings):
     # Permissions
     permission_default_level: int = 1
     session_timeout_seconds: int = 300
+    permission_sensitive_actions: list[str] = []
 
     # Event Bus
     event_bus_max_retries: int = 3
@@ -51,6 +52,9 @@ class AiosSettings(BaseSettings):
     windows_adapter_timeout: int = 30
 
     # Vision
+    vision_provider: str = "builtin"
+    vision_ocr_engine: str = "tesseract"
+    vision_capture_quality: int = 75
     vision_tesseract_path: str = "tesseract"
 
     # Memory

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
+  "productName": "Eve",
+  "version": "1.0.0",
+  "identifier": "com.eve.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev:frontend",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build:frontend",
+    "frontendDist": "../../src/frontend/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Eve",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "focus": true,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "withGlobalTauri": true
+  },
+  "bundle": {
+    "active": true,
+    "targets": "nsis",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../../launcher": "launcher",
+      "../../src/backend": "backend",
+      "python": "python",
+      "target/release/WebView2Loader.dll": "."
+    },
+    "windows": {
+      "wix": null,
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false,
+        "startMenuFolder": "Eve OS",
+        "installerIcon": "icons/icon.ico",
+        "compression": "lzma",
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    },
+    "publisher": "Eve OS",
+    "copyright": "2026 Eve OS",
+    "category": "Utility",
+    "shortDescription": "Eve OS Desktop",
+    "longDescription": "Eve OS — AI Operating System for your desktop. A native desktop application that brings AI capabilities to your Windows environment with system tray integration, notifications, and clipboard management.",
+    "licenseFile": "../../LICENSE",
+    "license": "MIT"
+  }
+}

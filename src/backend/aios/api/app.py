@@ -2,13 +2,12 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from aios.config.settings import AiosSettings
 from aios.utils.logger import setup_logging, get_logger
 from aios.core.event_bus import EventBus
-from aios.core.di_container import DIContainer
 from aios.core.ai_router import AIRouter
 from aios.core.permission_manager import PermissionManager
 from aios.core.tool_manager import ToolManager
@@ -55,19 +54,22 @@ async def lifespan(app: FastAPI):
     setup_logging(settings.log_level, settings.log_format)
     logger = get_logger(__name__)
 
-    di = DIContainer()
-
     event_bus = EventBus(
         max_retries=settings.event_bus_max_retries,
         retry_delay=settings.event_bus_retry_delay,
     )
     await event_bus.start()
 
-    permissions = PermissionManager()
+    permissions = PermissionManager(event_bus=event_bus, config=settings)
+    permissions.configure(
+        default_level=settings.permission_default_level,
+        sensitive_actions=list(settings.permission_sensitive_actions),
+        session_timeout=float(settings.session_timeout_seconds),
+    )
     tool_manager = ToolManager(permissions)
     capability_registry = CapabilityRegistry()
     ai_router = AIRouter()
-    memory = MemorySystem()
+    memory = MemorySystem(event_bus=event_bus)
     planner = Planner()
     context = ContextEngine(poll_interval=settings.context_poll_interval)
 
@@ -126,26 +128,6 @@ async def lifespan(app: FastAPI):
     status_service = StatusService()
     status_service.subscribe(on_status_change)
 
-    di.register(StatusService, lambda: status_service)
-    di.register(SettingsStore, lambda: SettingsStore())
-    di.register(AppShell, lambda: AppShell())
-    di.register(HotkeyManager, lambda: HotkeyManager())
-    di.register(NotificationService, lambda: NotificationService())
-    di.register(WindowManager, lambda: WindowManager())
-    di.register(StartupManager, lambda: StartupManager())
-    di.register(ExecutionEngine, lambda: execution_engine)
-    di.register(WorkspaceManager, lambda: workspace_manager)
-    di.register(WorkspaceService, lambda: workspace_service)
-    di.register(PermissionManager, lambda: permissions)
-    di.register(ToolManager, lambda: tool_manager)
-    di.register(CapabilityRegistry, lambda: capability_registry)
-    di.register(AIRouter, lambda: ai_router)
-    di.register(MemorySystem, lambda: memory)
-    di.register(Planner, lambda: planner)
-    di.register(ContextEngine, lambda: context)
-    di.register(ConversationManager, lambda: conversation_manager)
-    di.register(ConversationService, lambda: conversation_service)
-
     voice_config = VoiceConfig(
         stt_provider=STTProvider(settings.voice_stt_engine or "whisper"),
         tts_provider=TTSProvider(settings.voice_tts_engine or "pyttsx3"),
@@ -170,12 +152,6 @@ async def lifespan(app: FastAPI):
         event_publisher=voice_event_publisher,
     )
 
-    di.register(STTEngine, lambda: stt_engine)
-    di.register(TTSEngine, lambda: tts_engine)
-    di.register(VoiceSession, lambda: voice_session)
-    di.register(VoicePipeline, lambda: voice_pipeline)
-    di.register(VoiceEventPublisher, lambda: voice_event_publisher)
-
     vision_config = VisionConfig(
         provider=VisionProvider(settings.vision_provider or "builtin"),
         ocr_engine=OCREngine(settings.vision_ocr_engine or "tesseract"),
@@ -196,13 +172,6 @@ async def lifespan(app: FastAPI):
     browser_engine = BrowserEngine(vision_engine=vision_engine, event_bus=event_bus)
     register_browser_tools(tool_manager, browser_engine, vision_engine, event_bus)
 
-    di.register(VisionEngine, lambda: vision_engine)
-    di.register(VisionSession, lambda: vision_session)
-    di.register(VisionPipeline, lambda: vision_pipeline)
-    di.register(VisionEventPublisher, lambda: vision_event_publisher)
-    di.register(BrowserEngine, lambda: browser_engine)
-
-    app.state.di = di
     app.state.browser_engine = browser_engine
     app.state.event_bus = event_bus
     app.state.tool_manager = tool_manager
@@ -226,6 +195,8 @@ async def lifespan(app: FastAPI):
     app.state.vision_session = vision_session
     app.state.vision_pipeline = vision_pipeline
     app.state.vision_event_publisher = vision_event_publisher
+    import aios.api.vision as vision_api
+    vision_api.vision_session = vision_session
 
     logger.info("aios.started", version="1.0.0")
     await event_bus.publish("system:startup", {"version": "1.0.0"})
@@ -266,6 +237,8 @@ def create_app() -> FastAPI:
 
 
 def register_routes(app: FastAPI):
+    from aios.api.permissions import router as permissions_router
+
     from aios.api.chat import router as chat_router
     from aios.api.tools import router as tools_router
     from aios.api.capabilities import router as capabilities_router
@@ -277,6 +250,10 @@ def register_routes(app: FastAPI):
     app.include_router(capabilities_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
     app.include_router(plugins_router, prefix="/api/v1")
+    app.include_router(permissions_router, prefix="/api/v1")
+
+    from aios.api.memory import router as memory_router
+    app.include_router(memory_router, prefix="/api/v1")
 
     from aios.api.desktop import router as desktop_router
     app.include_router(desktop_router)
@@ -290,13 +267,11 @@ def register_routes(app: FastAPI):
     from aios.api.voice import router as voice_router
     app.include_router(voice_router)
 
-    import aios.api.vision as vision_api
     from aios.api.vision import router as vision_router
     app.include_router(vision_router)
-    vision_api.vision_session = vision_session
 
     @app.get("/api/v1/system/health")
-    async def health_check(request):
+    async def health_check(request: Request):
         eb = request.app.state.event_bus
         return {
             "status": "healthy",
@@ -311,7 +286,7 @@ def register_routes(app: FastAPI):
         }
 
     @app.get("/api/v1/system/status")
-    async def system_status(request):
+    async def system_status(request: Request):
         return {
             "cpu_usage": 0.0,
             "memory_usage": 0.0,

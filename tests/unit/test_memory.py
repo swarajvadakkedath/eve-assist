@@ -12,8 +12,8 @@ def mem():
 @pytest.mark.asyncio
 async def test_store_and_recall(mem):
     m = Memory(type=MemoryType.FACT, content="Python is a programming language", importance=0.8)
-    await mem.store(m)
-    recalled = await mem.recall(m.id)
+    mid = await mem.store(m)
+    recalled = await mem.recall(mid)
     assert recalled is not None
     assert recalled.content == "Python is a programming language"
 

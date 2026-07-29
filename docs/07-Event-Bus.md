@@ -61,6 +61,7 @@ Events follow a `domain:action:state` pattern:
 | `permission:requested` | Permission request created |
 | `permission:granted` | Permission approved |
 | `permission:denied` | Permission rejected |
+| `permission:expired` | Session approval expired |
 | `context:changed` | Context state changed |
 | `memory:stored` | Memory persisted |
 | `memory:retrieved` | Memory retrieved |

@@ -64,4 +64,17 @@ DEFAULT_CONFIG = {
         "host": "127.0.0.1",
         "port": 8456,
     },
+    "providers": {
+        "openai": {
+            "model": "gpt-4",
+            "embedding_model": "text-embedding-3-small",
+        },
+        "anthropic": {
+            "model": "claude-3-sonnet-20240229",
+        },
+        "ollama": {
+            "base_url": "http://localhost:11434",
+            "model": "llama3.2",
+        },
+    },
 }
