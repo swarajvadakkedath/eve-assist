@@ -6,6 +6,7 @@ import ConversationLoadingState from "./ConversationLoadingState";
 import ConversationErrorState from "./ConversationErrorState";
 import Composer from "./Composer";
 import type { TimelineEntry } from "./TimelineItem";
+import { fetchApi } from "../../services/api";
 import { getSessionStore, adaptBackendEvent, createCompletedEvent } from "../execution/session";
 import type { ExecutionSessionEvent } from "../execution/session";
 import { ExecutionInspector } from "../inspector";
@@ -46,7 +47,7 @@ function ConversationView({
 
   const fetchConversations = useCallback(async () => {
     try {
-      const res = await fetch("/api/v1/chat/conversations");
+      const res = await fetchApi("/chat/conversations");
       const data = await res.json();
       internalConversationsRef.current = data.conversations || [];
     } catch (err) {
@@ -66,7 +67,7 @@ function ConversationView({
 
   const createConversation = useCallback(async () => {
     try {
-      const res = await fetch("/api/v1/chat/conversation", { method: "POST" });
+      const res = await fetchApi("/chat/conversation", { method: "POST" });
       const conv = await res.json();
       setState((prev) => ({ ...prev, activeId: conv.id, messages: [], error: null }));
       fetchConversations();
@@ -82,7 +83,7 @@ function ConversationView({
     }
     setState((prev) => ({ ...prev, loading: true, messages: [], error: null }));
     try {
-      const res = await fetch(`/api/v1/chat/history/${id}`);
+      const res = await fetchApi(`/chat/history/${id}`);
       const data = await res.json();
       setState((prev) => ({
         ...prev,
@@ -97,7 +98,7 @@ function ConversationView({
 
   const deleteConversation = useCallback(async (id: string) => {
     try {
-      await fetch(`/api/v1/chat/conversation/${id}`, { method: "DELETE" });
+      await fetchApi(`/chat/conversation/${id}`, { method: "DELETE" });
       setState((prev) => {
         if (prev.activeId === id) {
           return { ...prev, activeId: null, messages: [] };
@@ -147,7 +148,7 @@ function ConversationView({
     let convId = state.activeId;
     if (!convId) {
       try {
-        const res = await fetch("/api/v1/chat/conversation", { method: "POST" });
+        const res = await fetchApi("/chat/conversation", { method: "POST" });
         const conv = await res.json();
         convId = conv.id;
         setState((prev) => ({ ...prev, activeId: conv.id }));
@@ -182,7 +183,7 @@ function ConversationView({
     }));
 
     try {
-      const res = await fetch("/api/v1/chat/stream", {
+      const res = await fetchApi("/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversation_id: convId, content: trimmed }),

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { fetchApi } from "../../services/api";
 
 interface Command {
   id: string;
@@ -24,8 +25,8 @@ export default function CommandPalette({ onClose, onNavigate }: CommandPalettePr
   useEffect(() => {
     inputRef.current?.focus();
     Promise.all([
-      fetch("/api/v1/chat/conversations").then((r) => r.json()).catch(() => ({ conversations: [] })),
-      fetch("/api/v1/tools").then((r) => r.json()).catch(() => ({ tools: [] })),
+      fetchApi("/chat/conversations").then((r) => r.json()).catch(() => ({ conversations: [] })),
+      fetchApi("/tools").then((r) => r.json()).catch(() => ({ tools: [] })),
     ]).then(([convData, toolData]) => {
       setConversations(convData.conversations || []);
       setTools(toolData.tools || []);

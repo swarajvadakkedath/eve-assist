@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { fetchApi } from "../../services/api";
 
 type AppStatus =
   | "starting" | "ready" | "listening" | "thinking"
@@ -19,12 +20,12 @@ const STATUS_CONFIG: Record<AppStatus, { label: string; color: string; icon: str
 };
 
 export default function StatusIndicator() {
-  const [status, setStatus] = useState("ready");
+  const [status, setStatus] = useState("starting");
   const [metadata, setMetadata] = useState<Record<string, unknown>>({});
 
   useEffect(() => {
     const fetchStatus = () => {
-      fetch("/api/v1/desktop/status")
+      fetchApi("/desktop/status")
         .then((r) => r.json())
         .then((data) => {
           setStatus(data.status);

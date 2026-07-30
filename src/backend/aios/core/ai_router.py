@@ -1,5 +1,6 @@
 """AI Router — provider abstraction, routing, failover, rate limiting, and cost tracking."""
 
+import asyncio
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -9,6 +10,8 @@ from typing import Any, AsyncIterator
 import structlog
 
 from aios.config.settings import AiosSettings
+from aios.utils.tracer import trace_async, call_with_timeout, AsyncTimeoutError, trace_async_gen
+from aios.core.adapters.base import sanitize_error
 
 logger = structlog.get_logger(__name__)
 
@@ -228,11 +231,13 @@ class AIRouter:
 
     # -- Provider management ------------------------------------------------
 
+    @trace_async
     async def register_provider(self, name: str, provider: AIProvider) -> None:
         self._providers[name] = provider
         if name not in self._provider_order:
             self._provider_order.append(name)
 
+    @trace_async
     async def unregister_provider(self, name: str) -> None:
         self._providers.pop(name, None)
         if name in self._provider_order:
@@ -272,6 +277,7 @@ class AIRouter:
 
         return ranked
 
+    @trace_async
     async def route(self, request: AIRequest) -> AIResponse:
         ranked = self._rank_providers(request)
         last_exception: Exception | None = None
@@ -288,7 +294,11 @@ class AIRouter:
 
             try:
                 start = time.monotonic()
-                response = await provider.chat(request)
+                response = await call_with_timeout(
+                    provider.chat(request),
+                    timeout=30.0,
+                    label=f"provider.{provider_name}.chat",
+                )
                 elapsed = time.monotonic() - start
 
                 self._circuit_breaker.record_success(provider_name)
@@ -309,11 +319,12 @@ class AIRouter:
             except Exception as e:
                 last_exception = e
                 self._circuit_breaker.record_failure(provider_name)
-                logger.warning("router.route.failed", provider=provider_name, error=str(e))
+                logger.warning("router.route.failed", provider=provider_name, error=sanitize_error(str(e)[:200]))
                 continue
 
         raise RuntimeError(f"All AI providers failed") from last_exception
 
+    @trace_async_gen
     async def route_stream(self, request: AIRequest) -> AsyncIterator[str]:
         ranked = self._rank_providers(request)
         last_exception: Exception | None = None
@@ -328,7 +339,9 @@ class AIRouter:
 
             try:
                 start = time.monotonic()
+                token_count = 0
                 async for token in provider.chat_stream(request):
+                    token_count += 1
                     yield token
                 elapsed = time.monotonic() - start
 
@@ -337,19 +350,30 @@ class AIRouter:
                 if len(self._latency_cache[provider_name]) > 100:
                     self._latency_cache[provider_name] = self._latency_cache[provider_name][-100:]
 
-                logger.info("router.route_stream.success", provider=provider_name, latency_ms=round(elapsed * 1000))
+                logger.info(
+                    "router.route_stream.success",
+                    provider=provider_name,
+                    latency_ms=round(elapsed * 1000),
+                    tokens=token_count,
+                )
                 return
 
+            except asyncio.TimeoutError:
+                last_exception = TimeoutError(f"Provider {provider_name} timed out")
+                self._circuit_breaker.record_failure(provider_name)
+                logger.warning("router.route_stream.timeout", provider=provider_name)
+                continue
             except Exception as e:
                 last_exception = e
                 self._circuit_breaker.record_failure(provider_name)
-                logger.warning("router.route_stream.failed", provider=provider_name, error=str(e))
+                logger.warning("router.route_stream.failed", provider=provider_name, error=sanitize_error(str(e)[:200]))
                 continue
 
         raise RuntimeError(f"All AI providers failed for stream") from last_exception
 
     # -- Meta ---------------------------------------------------------------
 
+    @trace_async
     async def health_check(self) -> dict[str, bool]:
         results = {}
         for name, provider in self._providers.items():

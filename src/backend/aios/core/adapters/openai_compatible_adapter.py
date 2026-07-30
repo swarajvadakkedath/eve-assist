@@ -1,0 +1,435 @@
+"""Generic OpenAI-compatible provider adapter.
+
+Covers OpenRouter, LM Studio, GitHub Models, HuggingFace, Mistral,
+Cerebras, and any other provider with an OpenAI-compatible /v1 API.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from typing import Any, AsyncIterator
+
+import httpx
+import structlog
+
+from aios.core.adapters.base import AIProviderAdapter, ChatRequest, ChatResponse, ProviderStatus, sanitize_error
+from aios.core.model_info import ModelInfo, CommercialStatus, AvailabilityStatus
+from aios.core.streaming_manager import StreamingManager
+from aios.core.timeout_retry import TimeoutConfig, call_with_timeout
+
+logger = structlog.get_logger(__name__)
+
+# OpenRouter pricing field: 0.0 means free-tier variant
+_OPENROUTER_FREE_KEYWORDS = frozenset({
+    ":free", "-free", "mistral-7b-instruct:free",
+})
+
+
+def _openrouter_classify(model_raw: dict) -> tuple[CommercialStatus, bool]:
+    """Classify an OpenRouter model as free or paid using its pricing fields.
+
+    OpenRouter returns `pricing.prompt` and `pricing.completion` as per-token
+    strings.  "0" or "0.0" means free for that direction.
+    """
+    pricing = model_raw.get("pricing", {})
+    if isinstance(pricing, dict):
+        prompt_price = pricing.get("prompt", "1")
+        completion_price = pricing.get("completion", "1")
+        try:
+            is_free = float(prompt_price) == 0.0 and float(completion_price) == 0.0
+        except (ValueError, TypeError):
+            is_free = False
+    else:
+        is_free = False
+
+    # Also check the model ID for free variants (/:free suffix)
+    mid = model_raw.get("id", "")
+    if ":free" in mid.lower() or mid.lower().endswith(":free"):
+        is_free = True
+
+    cs = CommercialStatus.FREE if is_free else CommercialStatus.PAID
+    return cs, is_free
+
+
+class OpenAICompatibleAdapter(AIProviderAdapter):
+    """Adapter for any OpenAI-compatible API (OpenRouter, LM Studio, etc.)."""
+
+    def __init__(
+        self,
+        provider_type: str,
+        provider_name: str,
+        api_key: str = "",
+        base_url: str = "",
+        timeout_config: TimeoutConfig | None = None,
+        streaming_manager: StreamingManager | None = None,
+    ):
+        self._provider_type = provider_type
+        self._provider_name = provider_name
+        self._api_key = api_key
+        self._base_url = base_url.rstrip("/")
+        self._timeout_config = timeout_config or TimeoutConfig()
+        self._streaming = streaming_manager or StreamingManager()
+        self._headers = {"Content-Type": "application/json"}
+        if api_key:
+            self._headers["Authorization"] = f"Bearer {api_key}"
+        if provider_type == "openrouter":
+            self._headers["HTTP-Referer"] = "https://eve-ai.app"
+            self._headers["X-Title"] = "Eve AI"
+        elif provider_type == "github_models":
+            self._headers["Accept"] = "application/vnd.github+json"
+            self._headers["X-GitHub-Api-Version"] = "2026-03-10"
+        elif provider_type == "nvidia":
+            self._headers["Content-Type"] = "application/json"
+        self._http_client = httpx.AsyncClient(timeout=self._timeout_config.chat)
+
+    @property
+    def provider_id(self) -> str:
+        return self._provider_type
+
+    @property
+    def provider_name(self) -> str:
+        return self._provider_name
+
+    async def connect(self) -> ProviderStatus:
+        return await self.health()
+
+    async def disconnect(self) -> None:
+        await self._http_client.aclose()
+
+    async def validate_api_key(self) -> bool:
+        return (await self.health()) == ProviderStatus.CONNECTED
+
+    def _classify_free(self, mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
+        """Determine commercial status for a discovered model."""
+        if self._provider_type == "openrouter":
+            return _openrouter_classify(raw)
+
+        # Local providers are always free
+        if self._provider_type in ("ollama", "lm_studio"):
+            return CommercialStatus.LOCAL, True
+
+        # Groq: free tier with rate limits
+        if self._provider_type == "groq":
+            return CommercialStatus.FREE_TIER, True
+
+        # GitHub Models: free for all GitHub accounts
+        if self._provider_type == "github_models":
+            return CommercialStatus.FREE_TIER, True
+
+        # NVIDIA NIM: free tier with rate limits
+        if self._provider_type == "nvidia":
+            return CommercialStatus.FREE_TIER, False
+
+        # Cloudflare Workers AI: free allocation
+        if self._provider_type == "cloudflare":
+            return CommercialStatus.FREE_TIER, False
+
+        # Mistral: check pricing — free tier exists but not all models are free
+        if self._provider_type == "mistral":
+            pricing = raw.get("pricing", raw.get("price", {}))
+            if isinstance(pricing, dict):
+                try:
+                    if float(pricing.get("prompt", "1") or "1") == 0.0:
+                        return CommercialStatus.FREE_TIER, True
+                except (ValueError, TypeError):
+                    pass
+            return CommercialStatus.PAID, False
+
+        # Cerebras: paid with free credits
+        if self._provider_type == "cerebras":
+            return CommercialStatus.PAID, False
+
+        # HuggingFace: credit-based
+        if self._provider_type == "huggingface":
+            return CommercialStatus.CREDIT_BASED, False
+
+        # Generic: check pricing fields
+        pricing = raw.get("pricing", raw.get("price", {}))
+        if isinstance(pricing, dict):
+            prompt_p = pricing.get("prompt", pricing.get("input", "1"))
+            compl_p = pricing.get("completion", pricing.get("output", "1"))
+            try:
+                if float(prompt_p) == 0.0 and float(compl_p) == 0.0:
+                    return CommercialStatus.FREE_TIER, True
+            except (ValueError, TypeError):
+                pass
+
+        return CommercialStatus.UNKNOWN, False
+
+    async def list_models(self) -> list[ModelInfo]:
+        # LM Studio: use native /api/v1/models for richer metadata
+        if self._provider_type == "lm_studio":
+            return await self._list_lmstudio_models()
+
+        url = f"{self._base_url}/models"
+        try:
+            resp = await call_with_timeout(
+                self._http_client.get(url, headers=self._headers),
+                timeout=self._timeout_config.list_models,
+                provider_id=self._provider_type,
+                operation="list_models",
+            )
+            if resp.status_code != 200:
+                logger.warning("compatible.list_models.http_error", status=resp.status_code, body=resp.text[:200])
+                return []
+
+            data = resp.json()
+            models = []
+            raw_models = []
+
+            if isinstance(data, dict) and "data" in data:
+                raw_models = data["data"]
+            elif isinstance(data, list):
+                raw_models = data
+
+            for m in raw_models:
+                if isinstance(m, str):
+                    mid = m
+                    raw_dict: dict = {}
+                elif isinstance(m, dict):
+                    mid = m.get("id", "")
+                    raw_dict = m
+                else:
+                    continue
+
+                if not mid:
+                    continue
+
+                def _get_ctx(d: dict) -> int:
+                    return (
+                        d.get("context_length")
+                        or d.get("context_window")
+                        or d.get("max_context_length")
+                        or d.get("max_context")
+                        or 128000
+                    )
+                def _get_max_out(d: dict) -> int:
+                    return (
+                        d.get("max_output_tokens")
+                        or d.get("max_completion_tokens")
+                        or d.get("max_tokens")
+                        or 16384
+                    )
+
+                commercial_status, is_free = self._classify_free(mid, raw_dict)
+
+                # Extract pricing for paid models
+                pricing = {"input": 0.0, "output": 0.0}
+                if commercial_status == CommercialStatus.PAID:
+                    raw_pricing = raw_dict.get("pricing", {})
+                    if isinstance(raw_pricing, dict):
+                        try:
+                            pricing["input"] = float(raw_pricing.get("prompt", 0) or 0)
+                            pricing["output"] = float(raw_pricing.get("completion", 0) or 0)
+                        except (ValueError, TypeError):
+                            pass
+
+                # OpenRouter: detect vision/reasoning from model metadata
+                arch = raw_dict.get("architecture", {})
+                modality = arch.get("modality", "") if isinstance(arch, dict) else ""
+                supports_vision = "image" in modality.lower() if modality else False
+
+                # Determine availability from OpenRouter's "status" field
+                avail_str = raw_dict.get("status", "available") if isinstance(raw_dict, dict) else "available"
+                try:
+                    availability = AvailabilityStatus(avail_str)
+                except ValueError:
+                    availability = AvailabilityStatus.AVAILABLE
+
+                model_info = ModelInfo(
+                    id=mid,
+                    display_name=raw_dict.get("name", mid) if isinstance(raw_dict, dict) else mid,
+                    provider_id=self._provider_type,
+                    provider_name=self._provider_name,
+                    provider_type=self._provider_type,
+                    context_window=_get_ctx(raw_dict),
+                    max_output_tokens=_get_max_out(raw_dict),
+                    supports_streaming=True,
+                    supports_vision=supports_vision,
+                    is_free=is_free,
+                    commercial_status=commercial_status,
+                    availability=availability,
+                    pricing=pricing,
+                    discovery_source="api",
+                    raw_provider_metadata={k: v for k, v in raw_dict.items() if k not in ("id", "object")} if raw_dict else {},
+                )
+                models.append(model_info)
+
+            return models
+        except httpx.ConnectError:
+            logger.warning("compatible.list_models.connect_error", url=url)
+            return []
+        except Exception as e:
+            logger.error("compatible.list_models.failed", provider=self._provider_type, error=sanitize_error(str(e)[:200]))
+            return []
+
+    async def get_model(self, model_id: str) -> ModelInfo | None:
+        models = await self.list_models()
+        for m in models:
+            if m.id == model_id:
+                return m
+        return None
+
+    async def _list_lmstudio_models(self) -> list[ModelInfo]:
+        """LM Studio native model discovery via /api/v1/models."""
+        native_url = f"{self._base_url.rsplit('/v1', 1)[0]}/api/v1/models"
+        try:
+            resp = await call_with_timeout(
+                self._http_client.get(native_url, headers=self._headers),
+                timeout=self._timeout_config.list_models,
+                provider_id="lm_studio",
+                operation="list_models",
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                models = []
+                for m in data.get("data", []):
+                    mid = m.get("id", "")
+                    if not mid:
+                        continue
+                    caps = m.get("capabilities", {})
+                    details = m.get("details", {})
+                    models.append(ModelInfo(
+                        id=mid,
+                        display_name=m.get("display_name", mid),
+                        provider_id="lm_studio",
+                        provider_name="LM Studio",
+                        provider_type="lm_studio",
+                        context_window=m.get("max_context_length", 8192) or 8192,
+                        max_output_tokens=m.get("max_output_tokens", 4096) or 4096,
+                        supports_streaming=True,
+                        supports_vision=caps.get("vision", False),
+                        supports_tools=caps.get("trained_for_tool_use", False),
+                        supports_json=True,
+                        supports_function_calling=caps.get("trained_for_tool_use", False),
+                        supports_reasoning=caps.get("reasoning", False),
+                        commercial_status=CommercialStatus.LOCAL,
+                        availability=AvailabilityStatus.AVAILABLE,
+                        is_free=True,
+                        discovery_source="api",
+                        metadata={
+                            "architecture": details.get("architecture", ""),
+                            "quantization": details.get("quantization", ""),
+                            "publisher": m.get("publisher", ""),
+                            "type": m.get("type", ""),
+                        },
+                    ))
+                return models
+        except Exception as e:
+            logger.warning("lmstudio.native_discovery.failed", error=sanitize_error(str(e)[:200]))
+
+        # Fallback to standard OpenAI-compatible /v1/models
+        return await self._list_standard_models()
+
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        start = time.monotonic()
+        body: dict[str, Any] = {
+            "model": request.model,
+            "messages": request.messages,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+        }
+        if request.top_p != 1.0:
+            body["top_p"] = request.top_p
+        if request.stop:
+            body["stop"] = request.stop
+        if request.tools:
+            body["tools"] = request.tools
+        if request.tool_choice:
+            body["tool_choice"] = request.tool_choice
+        if request.seed is not None:
+            body["seed"] = request.seed
+
+        try:
+            resp = await call_with_timeout(
+                self._http_client.post(
+                    f"{self._base_url}/chat/completions",
+                    json=body,
+                    headers=self._headers,
+                ),
+                timeout=self._timeout_config.chat,
+                provider_id=self._provider_type,
+                operation="chat",
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code
+            detail = sanitize_error(e.response.text[:300])
+            if status == 401 or status == 403:
+                return ChatResponse(provider=self._provider_type, model=request.model, content=f"Auth failed ({status})")
+            if status == 429:
+                return ChatResponse(provider=self._provider_type, model=request.model, content="Rate limited")
+            return ChatResponse(provider=self._provider_type, model=request.model, content=f"HTTP {status}: {detail}")
+        except Exception as e:
+            return ChatResponse(provider=self._provider_type, model=request.model, content=f"Error: {sanitize_error(str(e)[:300])}")
+
+        choice = data.get("choices", [{}])[0]
+        msg = choice.get("message", {})
+        content = msg.get("content", "")
+        tool_calls = msg.get("tool_calls", [])
+        usage = data.get("usage", {})
+
+        return ChatResponse(
+            content=content,
+            tool_calls=tool_calls,
+            finish_reason=choice.get("finish_reason", ""),
+            model=data.get("model", request.model),
+            provider=self._provider_type,
+            tokens_prompt=usage.get("prompt_tokens", 0),
+            tokens_completion=usage.get("completion_tokens", 0),
+            tokens_total=usage.get("total_tokens", 0),
+            latency_ms=(time.monotonic() - start) * 1000,
+        )
+
+    async def stream(self, request: ChatRequest) -> AsyncIterator[str]:
+        body: dict[str, Any] = {
+            "model": request.model,
+            "messages": request.messages,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "stream": True,
+        }
+        if request.tools:
+            body["tools"] = request.tools
+
+        stream_id = f"{self._provider_type}-{id(request)}"
+
+        async def _gen():
+            async with self._http_client.stream(
+                "POST",
+                f"{self._base_url}/chat/completions",
+                json=body,
+                headers=self._headers,
+            ) as resp:
+                resp.raise_for_status()
+                async for chunk in StreamingManager.read_sse_lines(resp):
+                    content = StreamingManager.extract_openai_chunk(chunk)
+                    if content:
+                        yield content
+
+        async for token in self._streaming.stream(stream_id, _gen(), timeout=self._timeout_config.streaming):
+            yield token
+
+    async def health(self) -> ProviderStatus:
+        try:
+            resp = await call_with_timeout(
+                self._http_client.get(f"{self._base_url}/models", headers=self._headers),
+                timeout=self._timeout_config.health,
+                provider_id=self._provider_type,
+                operation="health",
+            )
+            if resp.status_code == 200:
+                return ProviderStatus.CONNECTED
+            if resp.status_code in (401, 403):
+                return ProviderStatus.INVALID_KEY
+            if resp.status_code == 429:
+                return ProviderStatus.RATE_LIMITED
+            return ProviderStatus.ERROR
+        except httpx.ConnectError:
+            return ProviderStatus.OFFLINE
+        except httpx.TimeoutException:
+            return ProviderStatus.TIMEOUT
+        except Exception:
+            return ProviderStatus.ERROR

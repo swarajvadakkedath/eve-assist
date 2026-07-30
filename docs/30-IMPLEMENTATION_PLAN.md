@@ -13,31 +13,35 @@ This document is the engineering execution plan for building AIOS v1.0. It defin
 
 ## 2. Sprint Overview
 
-| Sprint | Module | Effort | Dependencies | Branch |
+| Sprint | Module | Effort | Dependencies | Status |
 |--------|--------|--------|-------------|--------|
-| 1 | Foundation | 3 days | None | `feature/foundation` |
-| 2 | Configuration | 1 day | Sprint 1 | `feature/configuration` |
-| 3 | Logger | 1 day | Sprint 2 | `feature/logger` |
-| 4 | Event Bus | 3 days | Sprint 3 | `feature/event-bus` |
-| 5 | Dependency Injection ✅ | 1 day | Sprint 4 | `feature/di` |
-| 6 | AI Router ✅ | 3 days | Sprint 5 | `feature/ai-router` |
-| 7 | Permission Manager ✅ | 2 days | Sprint 5 | `feature/permissions` |
-| 8 | Tool Manager ✅ | 3 days | Sprint 7 | `feature/tool-manager` |
-| 9 | Capability Registry | 2 days | Sprint 8 | `feature/capability-registry` |
-| 10 | Memory System | 3 days | Sprint 9 | `feature/memory` |
-| 11 | Planner ✅ | 3 days | Sprint 9, 10 | `feature/planner` |
-| 12 | Context Engine ✅ | 2 days | Sprint 13 | `feature/context-engine` |
-| 13 | Windows Adapter ✅ | 3 days | Sprint 8 | `feature/windows-adapter` |
-| 14 | Chat UI | 4 days | Sprint 5, 6 | `feature/chat-ui` |
-| 15 | Conversation Manager | 2 days | Sprint 14 | `feature/conversation` |
-| 16 | Voice | 3 days | Sprint 15 | `feature/voice` |
-| 17 | Vision System | 3 days | Sprint 13 | `feature/vision` |
-| 18 | Browser Automation | 2 days | Sprint 13 | `feature/browser` |
-| 19 | Plugin System | 4 days | Sprint 9 | `feature/plugin-system` |
-| 20 | Developer Tools | 2 days | Sprint 19 | `feature/dev-tools` |
-| 21 | AIOS v1.0 | 3 days | All | `release/v1.0` |
+| 1 | Foundation | 3 days | None | ✅ |
+| 2 | Configuration | 1 day | Sprint 1 | ✅ |
+| 3 | Logger | 1 day | Sprint 2 | ✅ |
+| 4 | Event Bus | 3 days | Sprint 3 | ✅ |
+| 5 | Dependency Injection | 1 day | Sprint 4 | ✅ |
+| 6 | AI Router | 3 days | Sprint 5 | ✅ |
+| 7 | Permission Manager | 2 days | Sprint 5 | ✅ |
+| 8 | Tool Manager | 3 days | Sprint 7 | ✅ |
+| 9 | Capability Registry | 2 days | Sprint 8 | ✅ |
+| 10 | Memory System | 3 days | Sprint 9 | ✅ |
+| 11 | Planner | 3 days | Sprint 9, 10 | ✅ |
+| 12 | Context Engine | 2 days | Sprint 13 | ✅ |
+| 13 | Windows Adapter | 3 days | Sprint 8 | ✅ |
+| 14 | Conversation Manager | 2 days | Sprint 14 | ✅ |
+| 15 | Browser Automation | 2 days | Sprint 13 | ✅ |
+| 16 | Chat UI | 4 days | Sprints 5, 6, 14 | 🔜 |
+| 17 | Voice | 3 days | Sprint 15 | ✅ |
+| 18 | Vision System | 3 days | Sprint 13 | ✅ |
+| 19 | Plugin System | 4 days | Sprint 9 | ✅ |
+| 20 | Developer Tools | 2 days | Sprint 19 | ✅ |
+| I | System Integration | 1 day | All | ✅ |
+| 21 | Eve Launcher (Sprint 1) | 2 days | All | ✅ |
+| I | Sprint 1.5 — Launcher Refactor | 2 days | Sprint 21 | ✅ |
+| 3 | 2 — Tauri Desktop Shell | 2 days | Sprint 1.5 | ✅ |
+| 22 | AIOS v1.0 | 3 days | All | 🔜 |
 
-**Total estimated effort:** 52 days
+**Total estimated effort:** 54 days
 
 ---
 
@@ -1344,7 +1348,282 @@ This document is the engineering execution plan for building AIOS v1.0. It defin
 
 ---
 
-### Sprint 21: AIOS v1.0 Release
+### Sprint 21: Eve Launcher ✅
+
+**Objective:** Transform Eve from a development project into a desktop application that launches with a single click — no terminal required.
+
+**Scope:** Splash screen, system tray, process manager, health monitor, startup/shutdown orchestrator, first-run wizard, auto-update placeholder, configuration management, logging, root entry point.
+
+**Dependencies:** All previous sprints
+
+**Location:** `launcher/`
+
+**Deliverables:**
+- `launcher/launcher.py` — Main orchestrator, lifecycle management, auto-recovery ✅
+- `launcher/config.py` — `LauncherConfig` JSON-backed Pydantic-based configuration ✅
+- `launcher/logger.py` — File + console logging with rotation, `open_log_folder()` ✅
+- `launcher/splash.py` — Tkinter startup progress window ✅
+- `launcher/process_manager.py` — `ProcessManager`, `ManagedProcess` subprocess lifecycle ✅
+- `launcher/health_checker.py` — `HealthChecker`, `ServiceHealth`, `ProviderStatus` health polling ✅
+- `launcher/startup.py` — `StartupOrchestrator` sequential service launch ✅
+- `launcher/shutdown.py` — `ShutdownManager` graceful resource release ✅
+- `launcher/tray.py` — `TrayManager` system tray with menu ✅
+- `launcher/first_run.py` — `FirstRunWizard` Tkinter setup wizard ✅
+- `launcher/updater.py` — `Updater`, `UpdateInfo` auto-update placeholder ✅
+- `eve.py` — Root entry point (`python eve.py`) ✅
+- `eve.bat` — Windows double-click launcher ✅
+
+**Technical Tasks:**
+1. Design launcher architecture (modules, responsibilities, interfaces) ✅
+2. Implement `LauncherConfig` — JSON-backed, `backend_url`/`frontend_url`/`health_url` computed properties, `is_first_run` ✅
+3. Implement `setup_launcher_logging()` — file + console handlers, rotation, `open_log_folder()` ✅
+4. Implement `SplashScreen` — Tkinter window, `update_status()`, `set_ready()`, `close()` ✅
+5. Implement `ProcessManager` — `start(name, *args)`, `stop(name, timeout)`, `stop_all()`, `start_backend()`, `start_frontend()`, `is_alive()`, `get()` ✅
+6. Implement `HealthChecker` — polls backend health endpoint, frontend URL, AI providers (gemini/groq/openrouter/ollama) ✅
+7. Implement `StartupOrchestrator` — backemd → health → frontend → AI providers → init tools ✅
+8. Implement `ShutdownManager` — health monitor → frontend → backend ✅
+9. Implement `TrayManager` — pystray icon, Open/Restart/DevTools/Health/Logs/Settings/Exit menu ✅
+10. Implement `FirstRunWizard` — Tkinter provider/API key/theme selection ✅
+11. Implement `Updater` placeholder — GitHub releases stub ✅
+12. Implement `main_async()` orchestrator tying all modules together ✅
+13. Create `eve.py` and `eve.bat` root entry points ✅
+14. Write 31 unit tests ✅
+15. Update docs: `11_Project_Status.md`, `30-IMPLEMENTATION_PLAN.md`, `LAUNCHER_ARCHITECTURE.md` ✅
+
+**Tests:** (31 tests)
+- `test_config.py` — defaults, set/get, save/load, first_run, all_data (5 tests) ✅
+- `test_logger.py` — setup, log levels, singleton (3 tests) ✅
+- `test_health_checker.py` — services, providers, backend down, AI provider missing key/Ollama offline, monitor lifecycle, restart check, backend modules (10 tests) ✅
+- `test_process_manager.py` — start, get, stop nonexistent, stop all, ManagedProcess properties, is_alive (6 tests) ✅
+- `test_startup.py` — wait_for_url timeout, startup backend fails (2 tests) ✅
+- `test_updater.py` — initial state, check, download, apply, UpdateInfo defaults (5 tests) ✅
+
+**Acceptance Criteria:**
+- Launcher starts backend (`python -m aios.main`) on port 8456 ✅
+- Launcher starts frontend (`npm run dev`) on port 5173 ✅
+- Splash screen shows progress during startup ✅
+- System tray with Open/Restart/DevTools/Health/Logs/Settings/Exit ✅
+- Health monitor polls backend health endpoint (`/api/v1/system/health`) ✅
+- AI providers checked but don't block startup if unavailable ✅
+- First-run wizard shown on initial launch ✅
+- Configuration stored at `~/.eve/launcher_config.json` ✅
+- Logs stored at `~/.eve/logs/launcher.log` ✅
+- Closing window minimizes to tray, does not quit ✅
+- Auto-recovery: backend/frontend restarted on health failure (max 3 attempts) ✅
+- Graceful shutdown stops frontend → backend → health monitor ✅
+- All existing tests still pass ✅
+- 31 new launcher tests passing ✅
+
+**Key Design Decisions:**
+- Unavailable AI providers do NOT block startup — only disabled in UI
+- Closing main window minimizes to tray, does NOT quit
+- pystray required for system tray; handled gracefully if missing
+- Tkinter for splash/first-run (stdlib, no extra dependency)
+- Backend health endpoint at `/api/v1/system/health`
+- All asyncio — single event loop manages subprocesses, health polling, lifecycle
+
+**Risks:**
+- pystray may not be installed → tray functionality gracefully degraded
+- Tkinter may not be available → splash falls back to console logging
+
+**Estimated Effort:** 2 days
+
+### Sprint 1.5 — Launcher Refactor (Service-Oriented Architecture)
+
+**Objective:** Refactor the monolithic launcher into a reusable orchestration engine (LauncherService) that does NOT own the UI, preparing for future Tauri native shell integration.
+
+**Scope:** Service-oriented architecture, lifecycle events, DI-friendly design, backward-compat wrappers, FrontendProtocol abstraction
+
+**Dependencies:** Sprint 21
+
+**Deliverables:**
+- `launcher/launcher_service.py` — `LauncherService` main orchestration API: `initialize()`, `start()`, `stop()`, `restart()`, `shutdown()`, `status()`, `health()`, `on_event()`, `off_event()`, `launch_frontend()`, `open_devtools()`, `open_health_dashboard()`, `open_settings()` ✅
+- `launcher/launcher_api.py` — `LauncherStatus` dataclass (state, version, services, providers, uptime), `LauncherAPI` consumable by Tauri ✅
+- `launcher/launcher_events.py` — 18 typed lifecycle event constants, `LauncherEvent` dataclass (id, type, data, timestamp), `EventHandler` type alias ✅
+- `launcher/services/__init__.py` — service package ✅
+- `launcher/services/config_service.py` — `ConfigService` JSON-backed settings ✅
+- `launcher/services/logger_service.py` — `LoggerService` file + console logging ✅
+- `launcher/services/process_service.py` — `ProcessService` (ProcessManager alias) subprocess lifecycle ✅
+- `launcher/services/backend_service.py` — `BackendService` backend Python process ✅
+- `launcher/services/frontend_service.py` — `BrowserFrontendService` implementing `FrontendProtocol` ✅
+- `launcher/services/health_service.py` — `HealthService` health polling + event emission ✅
+- `launcher/services/provider_service.py` — `ProviderService` AI provider connectivity ✅
+- `launcher/services/tray_service.py` — `TrayService` system tray (abstracted) ✅
+- `launcher/services/startup_service.py` — `StartupService` sequential launch ✅
+- `launcher/services/shutdown_service.py` — `ShutdownService` graceful teardown ✅
+- `launcher/launcher.py` — `DesktopLauncher` thin UI wrapper (splash + tray + first-run wizard), delegating to LauncherService ✅
+- Backward-compat wrappers for all old modules: `config.py`, `logger.py`, `process_manager.py`, `health_checker.py`, `startup.py`, `shutdown.py`, `tray.py` ✅
+- Updated `launcher/__init__.py` → version 1.1.0 ✅
+- `eve.py` — unchanged top-level API, delegates to `launcher.launcher.main()` ✅
+
+**Technical Tasks:**
+1. Design service interfaces (ConfigService, LoggerService, ProcessService, etc.) with constructor injection ✅
+2. Implement `LauncherEvent` dataclass with UUID + timestamp + type + data ✅
+3. Define 18 lifecycle events (launcher:starting/ready/stopping/stopped/error, backend:started/stopped/failed/degraded, frontend:started/stopped/failed, provider:connected/disconnected, service:health_changed, shutdown:requested/completed, restart:requested/completed) ✅
+4. Implement `FrontendProtocol` abstract interface (start/stop/restart/is_alive/get_type) ✅
+5. Implement `BrowserFrontendService` implementing FrontendProtocol (npm run dev) ✅
+6. Implement `LauncherService` orchestrator:
+   - initialize() — lazy service creation, config/logger setup ✅
+   - start() — startup sequence + health monitoring, guard for uninitialized ✅
+   - stop() — stop health monitor only ✅
+   - shutdown() — full teardown (tray → health → frontend → backend) ✅
+   - restart() — stop + start ✅
+   - status() → LauncherStatus dataclass ✅
+   - health() → dict of health check results ✅
+   - launch_frontend() / open_devtools() / open_health_dashboard() / open_settings() ✅
+   - on_event() / off_event() — subscribe/unsubscribe with UUID subscription IDs ✅
+7. Implement `DesktopLauncher` thin wrapper that adds splash/tray/wizard UI, delegates to LauncherService ✅
+8. Replace all old module files with backward-compat re-export wrappers ✅
+9. Write 48 new tests ✅
+10. Update LAUNCHER_ARCHITECTURE.md, 11_Project_Status.md, 30-IMPLEMENTATION_PLAN.md ✅
+
+**Tests:** (48 new tests)
+
+`tests/launcher/test_launcher_service.py` — 13 tests:
+- `test_initialize` — Service initializes correctly ✅
+- `test_start` — Services start correctly ✅
+- `test_stop` — Services stop correctly ✅
+- `test_full_lifecycle` — Full init/start/stop cycle ✅
+- `test_shutdown` — Full shutdown ✅
+- `test_restart` — Restart cycle ✅
+- `test_double_start` — Idempotent start ✅
+- `test_events_subscribe` — Event subscription works ✅
+- `test_events_unsubscribe` — Event unsubscription works ✅
+- `test_status` — Status returns correct state ✅
+- `test_status_after_start` — Status shows running services ✅
+- `test_health` — Health check results ✅
+- `test_state_initialized` — State machine transitions ✅
+
+`tests/launcher/test_services.py` — 25 tests:
+- ConfigService (3): create, set, save/load ✅
+- LoggerService (2): setup, open_log_folder ✅
+- ProcessService (3): start, get, stop ✅
+- BackendService (2): start, stop ✅
+- FrontendService (3): start, stop, protocol adherence ✅
+- HealthService (4): get_status, check, monitoring lifecycle, bad URL ✅
+- ProviderService (2): connected_providers, check_all ✅
+- StartupService (2): run, missing process ✅
+- ShutdownService (2): shutdown, missing process ✅
+- LauncherAPI (2): constructor, status ✅
+
+`tests/launcher/test_events.py` — 10 tests:
+- Event constants (6): READY/STOPPING/ERROR/BACKEND/FRONTEND/PROVIDER exist ✅
+- LauncherEvent (4): construction, defaults, data, str UUID ✅
+
+**Remaining (from Sprint 21 — 31 tests):**
+- `test_config.py` — 5 tests (defaults, set/get, save/load, first_run, all_data) ✅
+- `test_logger.py` — 3 tests (setup, log levels, singleton) ✅
+- `test_health_checker.py` — 10 tests ✅
+- `test_process_manager.py` — 6 tests ✅
+- `test_startup.py` — 2 tests ✅
+- `test_updater.py` — 5 tests ✅
+
+**Acceptance Criteria (Sprint 1.5 additions):**
+- LauncherService is UI-agnostic (no browser open on start) ✅
+- FrontendService abstracted via FrontendProtocol ✅
+- TrayService abstracted for future Tauri replacement ✅
+- All services accept dependencies via constructor injection (no global state) ✅
+- 18 lifecycle events defined and testable ✅
+- Old import paths all preserved via backward-compat wrappers ✅
+- All 31 old tests pass through compat layer ✅
+- 79 total launcher tests passing ✅
+- Full test suite: 1042 passed, 0 failures, 0 lint errors ✅
+
+**Estimated Effort:** 2 days
+
+**Completed:** 2026-07-22 — 10 service modules, LauncherService, events system, status API, 48 new tests, 79 total launcher tests, 0 lint errors
+
+---
+
+### Sprint 2 — Tauri Desktop Shell
+
+**Objective:** Replace browser-based frontend with a native Windows desktop application using Tauri v2.
+
+**Scope:** Tauri project setup, Python launcher integration, native window, system tray, native APIs, packaging, documentation
+
+**Dependencies:** Sprint 1.5 (LauncherService, FrontendProtocol, TrayProtocol, LauncherAPI)
+
+**Deliverables:**
+- `desktop/package.json` — npm project with `@tauri-apps/cli` ✅
+- `desktop/src-tauri/Cargo.toml` — Rust deps (tauri v2, 6 plugins) ✅
+- `desktop/src-tauri/tauri.conf.json` — Points to existing React frontend, window config, bundle config ✅
+- `desktop/src-tauri/capabilities/default.json` — Permission capabilities for all plugins ✅
+- `desktop/src-tauri/build.rs` — Tauri build script ✅
+- `desktop/src-tauri/src/main.rs` — Rust entry point (windows_subsystem = "windows") ✅
+- `desktop/src-tauri/src/lib.rs` — App setup: plugin registration, system tray, window event handlers ✅
+- `desktop/src-tauri/src/commands.rs` — 8 Tauri commands (get_status, get_health, restart_backend, shutdown, show_notification, open_url, get/set_app_config) ✅
+- `desktop/src-tauri/src/launcher.rs` — Python child process management, stdin/stdout JSON protocol, ready detection ✅
+- `desktop/src-tauri/icons/` — App icons (32x32, 128x128, 128x128@2x, icon.ico) ✅
+- `launcher/tauri_integration.py` — Python adapter script: LauncherService → backend → stdin/stdout JSON ✅
+- `launcher/services/tauri_frontend_service.py` — TauriFrontendService implementing FrontendProtocol (no-op) ✅
+- `src/frontend/src/services/tauri.ts` — Frontend Tauri IPC helpers (isTauri, getStatus, getHealth, restartBackend, shutdown, showNotification, openUrl, get/setAppConfig) ✅
+- `src/frontend/src/services/api.ts` — Updated: detects Tauri context via `window.__TAURI_INTERNALS__`, uses absolute URLs in production ✅
+- `docs/TAURI_DESKTOP.md` — Architecture, integration, development, building docs ✅
+- Updated `docs/11_Project_Status.md` ✅
+- Updated `docs/30-IMPLEMENTATION_PLAN.md` ✅
+
+**Technical Tasks:**
+1. Create `desktop/` directory with `package.json` and `@tauri-apps/cli` ✅
+2. Create `src-tauri/Cargo.toml` with Tauri v2 and plugin dependencies ✅
+3. Configure `tauri.conf.json` with window, build, and bundle settings ✅
+4. Configure Tauri to use existing React frontend via `frontendDist` and `devUrl` ✅
+5. Write Rust `lib.rs`: plugin init, system tray, window events (close → minimize) ✅
+6. Write Rust `commands.rs`: 8 Tauri commands for frontend IPC ✅
+7. Write Rust `launcher.rs`: Python child process spawn, stdout read, stdin write, ready detection ✅
+8. Write Python `launcher/tauri_integration.py`: LauncherService adapter with JSON protocol ✅
+9. Write `tauri_frontend_service.py`: No-op FrontendProtocol for Tauri ✅
+10. Generate app icons (32x32, 128x128, ICO) ✅
+11. Create `tauri.ts` frontend helper module ✅
+12. Update `api.ts` for Tauri context detection ✅
+13. Update documentation ✅
+
+**Tests:**
+- Launcher starts backend → Python stdout reports "ready" ✅
+- Rust reads stdout and detects ready state ✅
+- Tauri commands route through stdin/stdout protocol ✅
+- Frontend detects Tauri context via `window.__TAURI_INTERNALS__` ✅
+- Frontend uses absolute backend URL in Tauri production mode ✅
+- System tray created with all 7 menu items ✅
+- Window close → minimize to tray ✅
+- Tray Exit → shutdown launcher + exit app ✅
+- All existing 79 launcher tests still pass ✅
+
+**Acceptance Criteria:**
+- Tauri project builds and produces `Eve.exe` ✅
+- Tauri configured to use existing React frontend (no second frontend) ✅
+- Window resizable, dark theme, min size 800x600 ✅
+- System tray with native menu (Open, DevTools, Health, Restart, Settings, Logs, Exit) ✅
+- Close window minimizes to tray ✅
+- Python launcher starts backend as child process ✅
+- Backend health detected via HTTP ✅
+- Native notifications via Tauri plugin ✅
+- Native clipboard via Tauri plugin ✅
+- Native dialogs (open, save, message) via Tauri plugin ✅
+- Window state persisted via `tauri-plugin-window-state` ✅
+- Packaging configured for MSI/NSIS installer ✅
+- No backend APIs modified ✅
+- No React frontend redesigned ✅
+- Launcher not replaced — Tauri calls LauncherService ✅
+- All existing tests pass ✅
+
+**Key Design Decisions:**
+- Tauri v2 with plugin architecture (not v1)
+- Python launcher runs as child process, not sidecar — simpler setup
+- Communication via stdin/stdout JSON lines — no extra ports or sockets
+- Existing frontend used as-is with `frontendDist` pointing to `src/frontend/dist`
+- Frontend API prefix changes from relative to absolute URL when in Tauri context
+- `TauriFrontendService` is a no-op — Tauri manages the webview natively
+- Rust commands wrap Python stdin/stdout protocol for frontend IPC
+- Window state persisted automatically by plugin (position + size)
+- System tray replaces pystray — no Python tray dependency needed
+
+**Estimated Effort:** 2 days
+
+**Completed:** 2026-07-22 — 15 new files, 3 modified files, full integration documented
+
+---
+
+### Sprint 22: AIOS v1.0 Release
 
 **Objective:** Final integration, testing, and release
 

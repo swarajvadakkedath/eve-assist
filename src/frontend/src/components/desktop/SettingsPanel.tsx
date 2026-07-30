@@ -1,28 +1,161 @@
 import { useState, useEffect } from "react";
+import { fetchApi } from "../../services/api";
 import VoiceSettingsPanel from "../voice/VoiceSettingsPanel";
 import VisionSettings from "../vision/VisionSettings";
+import type { CommercialPolicy } from "../providers/types";
+import { COMMERCIAL_POLICY_OPTIONS } from "../providers/types";
 
 interface SettingsPanelProps {
   onClose: () => void;
 }
 
+function SettingsAITab() {
+  const [policy, setPolicy] = useState<CommercialPolicy>("allow_paid");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showPaidConfirm, setShowPaidConfirm] = useState(false);
+  const [pendingPolicy, setPendingPolicy] = useState<CommercialPolicy | null>(null);
+
+  useEffect(() => {
+    fetchApi("/routing/commercial-policy")
+      .then((r) => r.json())
+      .then((data) => {
+        setPolicy(data.policy || "allow_paid");
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const handleChange = async (newPolicy: CommercialPolicy) => {
+    // If switching TO allow_paid from a more restrictive policy, show confirmation
+    if (newPolicy === "allow_paid" && policy !== "allow_paid") {
+      setPendingPolicy(newPolicy);
+      setShowPaidConfirm(true);
+      return;
+    }
+    await savePolicy(newPolicy);
+  };
+
+  const savePolicy = async (newPolicy: CommercialPolicy) => {
+    setSaving(true);
+    try {
+      await fetchApi("/routing/commercial-policy", {
+        method: "PUT",
+        body: JSON.stringify({ policy: newPolicy }),
+      });
+      setPolicy(newPolicy);
+    } catch (err) {
+      console.error("Failed to save commercial policy", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmPaid = () => {
+    if (pendingPolicy) {
+      savePolicy(pendingPolicy);
+    }
+    setShowPaidConfirm(false);
+    setPendingPolicy(null);
+  };
+
+  const cancelPaid = () => {
+    setShowPaidConfirm(false);
+    setPendingPolicy(null);
+  };
+
+  if (loading) {
+    return <div className="loading-skeleton">Loading AI settings...</div>;
+  }
+
+  const currentOption = COMMERCIAL_POLICY_OPTIONS.find(o => o.value === policy);
+
+  return (
+    <div className="pr-settings-ai">
+      <h3>Routing Cost Policy</h3>
+      <p className="pr-settings-ai-description">
+        Control which AI routes Eve may use. This affects all conversations unless overridden per-conversation.
+      </p>
+
+      <div className="pr-settings-ai-policy-selector">
+        {COMMERCIAL_POLICY_OPTIONS.map((opt) => (
+          <label
+            key={opt.value}
+            className={`pr-settings-ai-policy-option ${policy === opt.value ? "selected" : ""}`}
+          >
+            <input
+              type="radio"
+              name="commercial-policy"
+              value={opt.value}
+              checked={policy === opt.value}
+              onChange={() => handleChange(opt.value)}
+              disabled={saving}
+            />
+            <div className="pr-settings-ai-policy-content">
+              <span className="pr-settings-ai-policy-label">{opt.label}</span>
+              <span className="pr-settings-ai-policy-desc">{opt.description}</span>
+            </div>
+          </label>
+        ))}
+      </div>
+
+      {policy === "allow_paid" && (
+        <div className="pr-settings-ai-paid-notice">
+          Paid models may be selected when required. This can incur charges on configured provider accounts.
+        </div>
+      )}
+
+      <button
+        className="btn btn-primary"
+        style={{ marginTop: 16, padding: "10px 24px", fontSize: 14 }}
+        onClick={() => {
+          window.dispatchEvent(new CustomEvent("aios:open-providers"));
+        }}
+      >
+        Open Provider Manager
+      </button>
+
+      {showPaidConfirm && (
+        <div className="pr-settings-ai-confirm-overlay" onClick={cancelPaid}>
+          <div className="pr-settings-ai-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h4>Allow paid AI routes?</h4>
+            <p>
+              Eve may use models that generate charges on configured provider accounts
+              when free or included routes cannot satisfy a request.
+            </p>
+            <div className="pr-settings-ai-confirm-actions">
+              <button className="btn btn-secondary" onClick={cancelPaid}>Cancel</button>
+              <button className="btn btn-primary" onClick={confirmPaid}>Allow Paid Routes</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("general");
 
   useEffect(() => {
-    fetch("/api/v1/desktop/settings")
+    fetchApi("/desktop/settings")
       .then((r) => r.json())
       .then((data) => setSettings(data))
+      .catch((err) => {
+        console.error("Failed to load settings:", err);
+        setError("Failed to load settings");
+      })
       .finally(() => setLoading(false));
   }, []);
 
   const handleSave = async () => {
     if (!settings) return;
     setSaving(true);
-    await fetch("/api/v1/desktop/settings", {
+    await fetchApi("/desktop/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ settings }),
@@ -46,8 +179,6 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
     });
   };
 
-  if (!settings) return null;
-
   return (
     <div className="settings-panel-overlay" onClick={onClose}>
       <div className="settings-panel settings-panel-wide" onClick={(e) => e.stopPropagation()}>
@@ -55,6 +186,22 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           <h2>Settings</h2>
           <button className="btn-close" onClick={onClose}>×</button>
         </div>
+        {loading && (
+          <div className="settings-body" style={{ textAlign: "center", padding: 40, color: "var(--text-secondary)" }}>
+            Loading settings...
+          </div>
+        )}
+        {error && (
+          <div className="settings-body" style={{ textAlign: "center", padding: 40, color: "var(--text-danger, #ef4444)" }}>
+            {error}
+            <br />
+            <button className="btn btn-secondary" style={{ marginTop: 12 }} onClick={() => window.location.reload()}>
+              Reload
+            </button>
+          </div>
+        )}
+        {!loading && !error && settings && (
+        <>
         <div className="settings-tabs">
           {["general", "voice", "vision", "ai", "shortcuts", "notifications", "startup", "privacy"].map((tab) => (
             <button
@@ -90,20 +237,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             <VisionSettings />
           )}
           {activeTab === "ai" && (
-            <>
-              <div className="setting-group">
-                <label>AI Provider</label>
-                <select value={settings?.ai?.provider || "openai"} onChange={(e) => update("ai.provider", e.target.value)}>
-                  <option value="openai">OpenAI</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="local">Local</option>
-                </select>
-              </div>
-              <div className="setting-group">
-                <label>AI Model</label>
-                <input type="text" value={settings?.ai?.model || "gpt-4o"} onChange={(e) => update("ai.model", e.target.value)} />
-              </div>
-            </>
+            <SettingsAITab />
           )}
           {activeTab === "shortcuts" && (
             <>
@@ -218,6 +352,8 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             {saving ? "Saving..." : "Save"}
           </button>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

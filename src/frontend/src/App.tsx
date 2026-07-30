@@ -19,6 +19,7 @@ import ObservationPanel from "./components/vision/ObservationPanel";
 import LivePreview from "./components/vision/LivePreview";
 import ImageUpload from "./components/vision/ImageUpload";
 import ActivityCenter from "./components/activity/ActivityCenter";
+import ManageProvidersPage from "./components/providers/ManageProvidersPage";
 
 const workspaces: WorkspaceDefinition[] = [
   { id: "conversation", label: "Chat", icon: "\u{1F4AC}", component: ConversationView },
@@ -34,6 +35,7 @@ function App() {
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [visionOpen, setVisionOpen] = useState(false);
   const [visionMode, setVisionMode] = useState<"observation" | "live" | "upload" | null>(null);
+  const [providersOpen, setProvidersOpen] = useState(false);
 
   const handleVoiceToggle = async () => {
     try {
@@ -55,6 +57,7 @@ function App() {
   const handleNavigate = (action: string, payload?: string) => {
     switch (action) {
       case "settings": setSettingsOpen(true); break;
+      case "providers": setProvidersOpen(true); break;
       case "plugins": setPluginsOpen(true); break;
       case "vision": setVisionOpen(true); setVisionMode("observation"); break;
       case "theme": setTheme((t) => (t === "dark" ? "light" : "dark")); break;
@@ -69,7 +72,13 @@ function App() {
       case "tools": setToolsOpen(true); break;
       case "panel": window.dispatchEvent(new CustomEvent("aios:toggle-panel", { detail: { panel: payload } })); break;
       case "command": window.dispatchEvent(new CustomEvent("aios:command", { detail: { command: payload } })); break;
-      case "url": window.open(payload, "_blank"); break;
+      case "url":
+        try {
+          const parsed = new URL(payload);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') break;
+        } catch { break; }
+        window.open(payload, "_blank");
+        break;
       case "conversation": if (payload === "new") window.dispatchEvent(new CustomEvent("aios:new-conversation")); break;
       case "workspace":
         if (payload && workspaces.some((w) => w.id === payload)) setActiveWorkspace(payload);
@@ -85,6 +94,12 @@ function App() {
   );
 
   useEffect(() => {
+    const handleOpenProviders = () => {
+      setSettingsOpen(false);
+      setProvidersOpen(true);
+    };
+    window.addEventListener("aios:open-providers", handleOpenProviders);
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === ",") {
         e.preventDefault();
@@ -109,7 +124,10 @@ function App() {
       }
     };
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("aios:open-providers", handleOpenProviders);
+    };
   }, []);
 
   useEffect(() => {
@@ -167,6 +185,7 @@ function App() {
           </div>
         </div>
       )}
+      {providersOpen && <ManageProvidersPage onClose={() => setProvidersOpen(false)} />}
       {visionOpen && visionMode === "upload" && (
         <div className="vision-panel-overlay" onClick={() => { setVisionOpen(false); setVisionMode(null); }}>
           <div onClick={(e) => e.stopPropagation()}>

@@ -3635,3 +3635,591 @@
     animation: none !important;
   }
 }
+
+/* ── AI Provider Management ─────────────── */
+
+.pr-providers-page {
+  width: 800px;
+  max-width: 90vw;
+  max-height: 90vh;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.4);
+}
+
+.pr-providers-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.pr-providers-page-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.pr-providers-page-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 4px 0 0;
+}
+
+.pr-providers-page-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.pr-providers-page-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.pr-providers-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 40px;
+  text-align: center;
+}
+
+.pr-providers-empty-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+  opacity: 0.6;
+}
+
+.pr-providers-empty h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.pr-providers-empty p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 400px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.pr-providers-empty-sub {
+  margin-top: 8px !important;
+  font-size: 13px !important;
+}
+
+.pr-providers-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px;
+  color: var(--text-secondary);
+}
+
+.pr-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: pr-spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes pr-spin {
+  to { transform: rotate(360deg); }
+}
+
+.pr-providers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.pr-provider-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.pr-provider-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.pr-provider-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pr-provider-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pr-provider-card-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pr-provider-card-model {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.pr-provider-default-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  background: rgba(124, 115, 255, 0.12);
+  padding: 2px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.pr-provider-card-meta {
+  display: flex;
+  gap: 16px;
+}
+
+.pr-provider-card-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pr-provider-card-meta-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 0.05em;
+}
+
+.pr-provider-card-meta-value {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.pr-provider-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.pr-remove-btn {
+  margin-left: auto;
+}
+
+.pr-add-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  min-height: 160px;
+  border-style: dashed;
+  border-color: var(--border);
+  transition: all 0.15s;
+}
+
+.pr-add-card:hover {
+  border-color: var(--accent);
+  border-style: dashed;
+  background: rgba(124, 115, 255, 0.04);
+}
+
+.pr-add-card-icon {
+  font-size: 32px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  line-height: 1;
+}
+
+.pr-add-card-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Status Badge */
+
+.pr-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pr-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pr-status-label {
+  line-height: 1;
+}
+
+.pr-status-latency {
+  font-size: 10px;
+  font-weight: 400;
+  margin-left: 2px;
+}
+
+/* Add Provider Dialog */
+
+.pr-add-provider-dialog {
+  width: 520px;
+  max-width: 90vw;
+  max-height: 70vh;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.3);
+}
+
+.pr-add-provider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pr-add-provider-header h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.pr-add-provider-search {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pr-add-provider-search input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+.pr-add-provider-search input:focus {
+  border-color: var(--accent);
+}
+
+.pr-add-provider-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.pr-add-provider-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.pr-add-provider-item:hover {
+  border-color: var(--accent);
+  background: rgba(124, 115, 255, 0.06);
+}
+
+.pr-add-provider-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.pr-add-provider-name {
+  font-weight: 500;
+}
+
+.pr-add-provider-loading,
+.pr-add-provider-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 24px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+/* Configuration Dialog extras */
+
+.pr-form-error {
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius);
+  color: var(--error);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.pr-form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.pr-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.pr-test-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.pr-connection-tester {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pr-test-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.pr-test-success {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.pr-test-fail {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.pr-test-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.pr-select-loading {
+  padding: 10px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.pr-select-error {
+  font-size: 11px;
+  color: var(--error);
+  margin-top: 4px;
+}
+
+/* Smart Routing */
+
+.pr-routing-panel {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.pr-routing-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.pr-routing-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.pr-routing-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pr-routing-toggle {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.pr-routing-unsaved {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.pr-routing-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+
+.pr-routing-body {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.pr-routing-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.pr-routing-row:last-child {
+  border-bottom: none;
+}
+
+.pr-routing-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.pr-routing-row-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.pr-routing-row-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.pr-routing-select {
+  width: 220px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+}
+
+.pr-routing-select:focus {
+  border-color: var(--accent);
+}
+
+.pr-routing-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 12px;
+}
+
+/* Provider link in settings */
+
+.pr-settings-ai-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px 16px;
+}
+
+.pr-settings-ai-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  opacity: 0.6;
+}
+
+.pr-settings-ai-placeholder h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.pr-settings-ai-placeholder p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 360px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Loading state */
+
+.pr-loading {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}

@@ -7,12 +7,11 @@ from aios.conversation.formatter import (
     create_token_event,
     create_done_event,
     create_error_event,
-    create_tool_call_event,
-    create_tool_result_event,
     create_status_event,
 )
 from aios.conversation.exceptions import StreamError
 from aios.utils.logger import get_logger
+from aios.utils.tracer import trace_async_gen
 
 logger = get_logger(__name__)
 
@@ -22,11 +21,13 @@ class StreamManager:
         self._cancelled: dict[str, bool] = {}
         self._active_streams: dict[str, asyncio.Task] = {}
 
+    @trace_async_gen
     async def stream(
         self,
         stream_id: str,
         token_generator: AsyncIterator[str],
         max_retries: int = 2,
+        done_metadata: dict | None = None,
     ) -> AsyncIterator[dict]:
         self._cancelled[stream_id] = False
         retries = 0
@@ -40,7 +41,10 @@ class StreamManager:
                             return
                         yield create_token_event(token)
 
-                    yield create_done_event(stream_id)
+                    yield create_done_event(
+                        stream_id,
+                        routing_trace=done_metadata.get("routing_trace") if done_metadata else None,
+                    )
                     return
 
                 except asyncio.CancelledError:

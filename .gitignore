@@ -57,3 +57,13 @@ plugins/installed/
 
 # Screenshots (generated)
 resources/screenshots/
+
+# Bundled Python runtime (vendored)
+desktop/src-tauri/python/Lib/site-packages/
+desktop/src-tauri/python/*.dll
+desktop/src-tauri/python/*.exe
+desktop/src-tauri/python/*.zip
+desktop/src-tauri/python/*.cat
+desktop/src-tauri/python/python3.dll
+desktop/src-tauri/python/python312.pth
+desktop/src-tauri/python/LICENSE.txt

@@ -45,7 +45,13 @@ function renderInlineMarkdown(text: string): string {
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
     .replace(/`(.+?)`/g, "<code>$1</code>")
     .replace(/~~(.+?)~~/g, "<del>$1</del>")
-    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    .replace(/\[(.+?)\]\((.+?)\)/g, (match, text, url) => {
+      const scheme = url.split(':')[0].toLowerCase();
+      if (['javascript', 'data', 'file', 'vbscript'].includes(scheme)) {
+        return text;
+      }
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    });
 }
 
 function CodeBlockRenderer({ language, code }: { language: string; code: string }) {

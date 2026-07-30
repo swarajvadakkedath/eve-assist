@@ -1,7 +1,7 @@
 """Strongly-typed data models for conversations."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 from uuid import uuid4
@@ -127,7 +127,7 @@ class Message:
         if not self.id:
             self.id = uuid4().hex
         if not self.timestamp:
-            self.timestamp = datetime.utcnow()
+            self.timestamp = datetime.now(timezone.utc)
         if isinstance(self.role, str):
             self.role = MessageRole(self.role)
 
@@ -145,11 +145,21 @@ class Conversation:
     message_count: int = 0
     parent_id: str | None = None
     branch_point_message_id: str | None = None
+    provider_id: str | None = None
+    model_id: str | None = None
+    routing_policy: str | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    max_tokens: int | None = None
+    system_prompt: str | None = None
+    thinking_mode: bool = False
+    streaming_enabled: bool = True
 
     def __post_init__(self):
         if not self.id:
             self.id = uuid4().hex
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if not self.created_at:
             self.created_at = now
         if not self.updated_at:
@@ -179,7 +189,7 @@ class Session:
         if not self.session_id:
             self.session_id = uuid4().hex
         if not self.created_at:
-            self.created_at = datetime.utcnow()
+            self.created_at = datetime.now(timezone.utc)
 
 
 class StreamEvent:

@@ -16,6 +16,8 @@ pyperclip>=1.9.0
 pyttsx3>=2.90
 SpeechRecognition>=3.10.0
 pyyaml>=6.0
+sse-starlette>=2.0.0
+python-multipart>=0.0.9
 
 # Dev
 pytest>=8.2.0

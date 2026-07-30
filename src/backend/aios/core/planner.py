@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 from aios.core.capability_registry import CapabilityRegistry
+from aios.core.adapters.base import sanitize_error
 
 
 MIN_CAPABILITY_SCORE = 0.3
@@ -259,7 +260,7 @@ class Planner:
             self._plan_results[plan.id] = PlanResult(
                 plan_id=plan.id,
                 success=False,
-                error=str(e),
+                error=sanitize_error(str(e)[:300]),
             )
             return plan
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { fetchApi } from "../../services/api";
 
 interface Execution {
   id: string;
@@ -76,8 +77,8 @@ export default function ExecutionPanel({ executionId }: { executionId: string | 
     const fetchData = async () => {
       try {
         const [execRes, progressRes] = await Promise.all([
-          fetch(`/api/v1/execution/${executionId}`).then((r) => r.json()),
-          fetch(`/api/v1/execution/${executionId}/progress`).then((r) => r.json()),
+          fetchApi(`/execution/${executionId}`).then((r) => r.json()),
+          fetchApi(`/execution/${executionId}/progress`).then((r) => r.json()),
         ]);
         setExecution(execRes.execution);
         setTasks(execRes.tasks || []);
@@ -96,7 +97,7 @@ export default function ExecutionPanel({ executionId }: { executionId: string | 
   const handleAction = async (action: string) => {
     if (!executionId) return;
     try {
-      await fetch(`/api/v1/execution/${executionId}/${action}`, { method: "POST" });
+      await fetchApi(`/execution/${executionId}/${action}`, { method: "POST" });
     } catch {}
   };
 

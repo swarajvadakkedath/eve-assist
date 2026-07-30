@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 from uuid import uuid4
 
@@ -26,6 +26,7 @@ from aios.conversation.exceptions import (
     MemoryError,
     StreamError,
 )
+from aios.core.routing_types import NoEligibleRouteError
 from aios.conversation.prompts import (
     build_system_prompt,
     build_memory_context,
@@ -36,20 +37,17 @@ from aios.conversation.formatter import (
     create_token_event,
     create_done_event,
     create_error_event,
-    create_tool_call_event,
-    create_tool_result_event,
     create_status_event,
     create_planner_started_event,
     create_planner_completed_event,
-    create_memory_retrieval_event,
     create_tool_requested_event,
     create_tool_running_event,
     create_tool_completed_event,
-    create_context_loaded_event,
     create_final_response_event,
-    create_title_generated_event,
-    create_analytics_event,
 )
+from aios.utils.tracer import trace_async, trace_async_gen
+from aios.utils.logger import get_logger
+from aios.core.adapters.base import sanitize_error
 from aios.conversation.stream import StreamManager
 from aios.conversation.session import SessionManager
 from aios.conversation.history import HistoryManager
@@ -98,10 +96,12 @@ class ConversationManager(IConversationService):
 
     # ── Conversation CRUD ──────────────────────────────────────────
 
-    async def create_conversation(self, title: str | None = None, project: str | None = None) -> Conversation:
+    async def create_conversation(self, title: str | None = None, project: str | None = None, provider_id: str | None = None, model_id: str | None = None) -> Conversation:
         conv = Conversation(
             title=title or "New Conversation",
             active_project=project,
+            provider_id=provider_id,
+            model_id=model_id,
         )
         if title:
             conv.metadata["title_is_custom"] = True
@@ -149,13 +149,40 @@ class ConversationManager(IConversationService):
     async def rename_conversation(self, conversation_id: str, title: str) -> Conversation:
         conv = await self.get_conversation(conversation_id)
         conv.title = title
-        conv.updated_at = datetime.utcnow()
+        conv.updated_at = datetime.now(timezone.utc)
         conv.metadata["title_is_custom"] = True
         if self._repository:
             try:
                 await self._repository.update_conversation(conv)
             except Exception as e:
                 logger.error("conversation.repository_rename_failed", error=str(e))
+        return conv
+
+    async def set_provider_model(
+        self,
+        conversation_id: str,
+        provider_id: str | None = None,
+        model_id: str | None = None,
+        routing_policy: str | None = None,
+    ) -> Conversation:
+        conv = await self.get_conversation(conversation_id)
+        changed = False
+        if provider_id is not None and conv.provider_id != provider_id:
+            conv.provider_id = provider_id
+            changed = True
+        if model_id is not None and conv.model_id != model_id:
+            conv.model_id = model_id
+            changed = True
+        if routing_policy is not None and conv.routing_policy != routing_policy:
+            conv.routing_policy = routing_policy
+            changed = True
+        if changed:
+            conv.updated_at = datetime.now(timezone.utc)
+            if self._repository:
+                try:
+                    await self._repository.update_conversation(conv)
+                except Exception as e:
+                    logger.error("conversation.repository_set_provider_model_failed", conversation_id=conversation_id, error=str(e))
         return conv
 
     # ── Smart Titles ───────────────────────────────────────────────
@@ -170,7 +197,7 @@ class ConversationManager(IConversationService):
         new_title = await self._title_generator.generate_title(conv, messages)
         if new_title:
             conv.title = new_title
-            conv.updated_at = datetime.utcnow()
+            conv.updated_at = datetime.now(timezone.utc)
             logger.info("conversation.title_generated", id=conversation_id, title=new_title)
         return conv.title
 
@@ -223,7 +250,7 @@ class ConversationManager(IConversationService):
         conv = self._conversations.get(branch_id)
         if conv:
             conv.title = title
-            conv.updated_at = datetime.utcnow()
+            conv.updated_at = datetime.now(timezone.utc)
         return await self._branch_manager.rename_branch(branch_id, title)
 
     # ── Edit & Regenerate ──────────────────────────────────────────
@@ -248,7 +275,7 @@ class ConversationManager(IConversationService):
         edit_entry = EditEntry(
             original_content=target.content,
             edited_content=new_content,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         target.edit_history.append(edit_entry)
         target.content = new_content
@@ -256,7 +283,7 @@ class ConversationManager(IConversationService):
         messages[target_idx + 1:] = []
 
         conv = await self.get_conversation(conversation_id)
-        conv.updated_at = datetime.utcnow()
+        conv.updated_at = datetime.now(timezone.utc)
         logger.info("message.edited", conversation_id=conversation_id, message_id=message_id)
         return target
 
@@ -281,7 +308,7 @@ class ConversationManager(IConversationService):
 
         context = await self._gather_context(conversation_id)
         memories = await self._retrieve_memories(" ".join(m.content for m in messages[-3:] if m.role == MessageRole.USER), conversation_id)
-        history = self._messages.get(conversation_id, [])
+        history = await self._ensure_messages_loaded(conversation_id)
         context_window = await self._history_manager.build_context_window(history, memories)
 
         llm_messages = messages_to_llm_format(
@@ -292,14 +319,22 @@ class ConversationManager(IConversationService):
         )
 
         try:
-            ai_response = await self._ai_router.route(
-                type("AIRequest", (), {
-                    "messages": llm_messages,
-                    "stream": False,
-                    "max_tokens": 4096,
-                    "temperature": 0.7,
-                })()
-            )
+            req = type("AIRequest", (), {
+                "messages": llm_messages,
+                "stream": False,
+                "max_tokens": conv.max_tokens or 4096,
+                "temperature": conv.temperature or 0.7,
+            })()
+            if conv.provider_id:
+                req.provider_id = conv.provider_id
+            if conv.model_id:
+                req.model = conv.model_id
+            from aios.core.smart_router import RoutingPolicy
+            if conv.routing_policy:
+                policy = RoutingPolicy(conv.routing_policy)
+            else:
+                policy = RoutingPolicy.STRICT if conv.provider_id else RoutingPolicy.AUTO
+            ai_response = await self._ai_router.route(req, routing_policy=policy)
         except Exception as e:
             raise AIProviderError(f"AI provider failed: {e}", original=e)
 
@@ -307,11 +342,11 @@ class ConversationManager(IConversationService):
             conversation_id=conversation_id,
             role=MessageRole.ASSISTANT,
             content=ai_response.content,
-            tokens_used=ai_response.tokens_used,
+            tokens_used=getattr(ai_response, "tokens_used", 0) or getattr(ai_response, "tokens_total", 0),
             is_regenerated=True,
         )
         self._add_message(conversation_id, new_msg)
-        conv.updated_at = datetime.utcnow()
+        conv.updated_at = datetime.now(timezone.utc)
         logger.info("message.regenerated", conversation_id=conversation_id, message_id=message_id)
         return new_msg
 
@@ -395,7 +430,7 @@ class ConversationManager(IConversationService):
                         cancelled=execution.status == ExecutionStatus.CANCELLED,
                     )
 
-        history = self._messages.get(conversation_id, [])
+        history = await self._ensure_messages_loaded(conversation_id)
         context_window = await self._history_manager.build_context_window(history, memories)
 
         llm_messages = messages_to_llm_format(
@@ -406,14 +441,22 @@ class ConversationManager(IConversationService):
         )
 
         try:
-            ai_response = await self._ai_router.route(
-                type("AIRequest", (), {
-                    "messages": llm_messages,
-                    "stream": False,
-                    "max_tokens": 4096,
-                    "temperature": 0.7,
-                })()
-            )
+            req = type("AIRequest", (), {
+                "messages": llm_messages,
+                "stream": False,
+                "max_tokens": conv.max_tokens or 4096,
+                "temperature": conv.temperature or 0.7,
+            })()
+            if conv.provider_id:
+                req.provider_id = conv.provider_id
+            if conv.model_id:
+                req.model = conv.model_id
+            from aios.core.smart_router import RoutingPolicy
+            if conv.routing_policy:
+                policy = RoutingPolicy(conv.routing_policy)
+            else:
+                policy = RoutingPolicy.STRICT if conv.provider_id else RoutingPolicy.AUTO
+            ai_response = await self._ai_router.route(req, routing_policy=policy)
         except Exception as e:
             raise AIProviderError(f"AI provider failed: {e}", original=e)
 
@@ -423,7 +466,7 @@ class ConversationManager(IConversationService):
             conversation_id=conversation_id,
             role=MessageRole.ASSISTANT,
             content=ai_response.content,
-            tokens_used=ai_response.tokens_used,
+            tokens_used=getattr(ai_response, "tokens_used", 0) or getattr(ai_response, "tokens_total", 0),
             latency_ms=latency_ms,
             planning_context=PlanningContext(
                 intent=intent,
@@ -441,7 +484,7 @@ class ConversationManager(IConversationService):
                 logger.error("conversation.repository_add_response_failed", error=str(e))
 
         await self._update_memory(content, ai_response.content, conversation_id)
-        conv.updated_at = datetime.utcnow()
+        conv.updated_at = datetime.now(timezone.utc)
         conv.message_count = len(self._messages.get(conversation_id, [])) // 2
 
         await self.ensure_title(conversation_id)
@@ -449,6 +492,7 @@ class ConversationManager(IConversationService):
 
         return assistant_msg
 
+    @trace_async_gen
     async def stream_message(self, conversation_id: str, content: str) -> AsyncIterator[dict]:
         conv = await self.get_conversation(conversation_id)
         start_time = time.monotonic()
@@ -517,7 +561,7 @@ class ConversationManager(IConversationService):
                             yield create_tool_completed_event(step.capability, step_success, step_duration)
 
 
-        history = self._messages.get(conversation_id, [])
+        history = await self._ensure_messages_loaded(conversation_id)
         context_window = await self._history_manager.build_context_window(history, memories)
 
         llm_messages = messages_to_llm_format(
@@ -532,29 +576,54 @@ class ConversationManager(IConversationService):
 
         full_content = ""
         tokens_used = 0
+        had_error = False
 
         try:
-            token_gen = self._ai_router.route_stream(
-                type("AIRequest", (), {
-                    "messages": llm_messages,
-                    "stream": True,
-                    "max_tokens": 4096,
-                    "temperature": 0.7,
-                })()
-            )
+            req = type("AIRequest", (), {
+                "messages": llm_messages,
+                "stream": True,
+                "max_tokens": conv.max_tokens or 4096,
+                "temperature": conv.temperature or 0.7,
+            })()
+            if conv.provider_id:
+                req.provider_id = conv.provider_id
+            if conv.model_id:
+                req.model = conv.model_id
+            from aios.core.smart_router import RoutingPolicy
+            if conv.routing_policy:
+                policy = RoutingPolicy(conv.routing_policy)
+            else:
+                policy = RoutingPolicy.STRICT if conv.provider_id else RoutingPolicy.AUTO
+            token_gen = self._ai_router.route_stream(req, routing_policy=policy)
 
-            async for event in self._stream_manager.stream(uuid4().hex, token_gen):
+            async for event in self._stream_manager.stream(uuid4().hex, token_gen, done_metadata={"routing_trace": self._ai_router.last_routing_trace}):
+                if event["type"] == StreamEventType.ERROR.value:
+                    had_error = True
                 if event["type"] == StreamEventType.TOKEN.value:
                     full_content += event["data"]["token"]
                     tokens_used += 1
                 yield event
 
+        except NoEligibleRouteError as e:
+            logger.error("stream.strict_failure", error=str(e))
+            yield create_error_event(f"Strict routing failed: {e.reason}", recoverable=False)
+            had_error = True
+            full_content = f"Strict routing failed: {e.reason}"
         except Exception as e:
             logger.error("stream.failed", error=str(e))
-            yield create_error_event(str(e), recoverable=True)
+            yield create_error_event(sanitize_error(str(e)), recoverable=True)
+            had_error = True
             full_content = full_content or f"I encountered an error: {e}"
 
         latency_ms = (time.monotonic() - start_time) * 1000
+
+        if not full_content and not had_error:
+            logger.error("stream.empty_response", conversation_id=conversation_id)
+            yield create_error_event("The provider returned an empty response.", recoverable=True)
+            return
+
+        if not full_content and had_error:
+            return
 
         assistant_msg = Message(
             conversation_id=conversation_id,
@@ -578,7 +647,7 @@ class ConversationManager(IConversationService):
                 logger.error("conversation.repository_add_stream_failed", error=str(e))
 
         await self._safe_update_memory(content, full_content, conversation_id)
-        conv.updated_at = datetime.utcnow()
+        conv.updated_at = datetime.now(timezone.utc)
         conv.message_count = len(self._messages.get(conversation_id, [])) // 2
 
         await self.ensure_title(conversation_id)
@@ -586,6 +655,13 @@ class ConversationManager(IConversationService):
 
     async def get_history(self, conversation_id: str, limit: int = 100, offset: int = 0) -> list[Message]:
         messages = self._messages.get(conversation_id, [])
+        if not messages and self._repository:
+            try:
+                messages = await self._repository.get_messages(conversation_id, limit=limit, offset=offset)
+                if messages:
+                    self._messages[conversation_id] = list(messages)
+            except Exception as e:
+                logger.error("conversation.load_messages_failed", conv_id=conversation_id, error=str(e))
         return messages[-limit:]
 
     async def clear_history(self, conversation_id: str) -> None:
@@ -623,6 +699,18 @@ class ConversationManager(IConversationService):
 
     def _add_message(self, conversation_id: str, message: Message) -> None:
         self._messages.setdefault(conversation_id, []).append(message)
+
+    async def _ensure_messages_loaded(self, conversation_id: str) -> list[Message]:
+        """Load messages from repository into memory if not already loaded."""
+        messages = self._messages.get(conversation_id, [])
+        if not messages and self._repository:
+            try:
+                messages = await self._repository.get_messages(conversation_id)
+                if messages:
+                    self._messages[conversation_id] = list(messages)
+            except Exception as e:
+                logger.error("conversation.load_messages_failed", conv_id=conversation_id, error=str(e))
+        return self._messages.get(conversation_id, [])
 
     async def _gather_context(self, conversation_id: str) -> dict:
         if not self._context_engine:

@@ -7,6 +7,7 @@ from aios.conversation.models import Conversation, Message
 from aios.conversation.interfaces import IConversationService
 from aios.conversation.exceptions import ConversationNotFoundError, AIProviderError
 from aios.utils.logger import get_logger
+from aios.utils.tracer import trace_async_gen
 
 logger = get_logger(__name__)
 
@@ -20,8 +21,14 @@ class ConversationService(IConversationService):
         self._manager = manager
         self._event_bus = event_bus
 
-    async def create_conversation(self, title: str | None = None, project: str | None = None) -> Conversation:
-        conv = await self._manager.create_conversation(title, project)
+    async def create_conversation(
+        self,
+        title: str | None = None,
+        project: str | None = None,
+        provider_id: str | None = None,
+        model_id: str | None = None,
+    ) -> Conversation:
+        conv = await self._manager.create_conversation(title, project, provider_id=provider_id, model_id=model_id)
         if self._event_bus:
             await self._event_bus.publish("conversation:created", {
                 "id": conv.id,
@@ -73,6 +80,22 @@ class ConversationService(IConversationService):
             logger.error("service.send_message_failed", error=str(e))
             raise
 
+    async def set_provider_model(
+        self,
+        conversation_id: str,
+        provider_id: str | None = None,
+        model_id: str | None = None,
+        routing_policy: str | None = None,
+    ) -> Conversation:
+        try:
+            return await self._manager.set_provider_model(conversation_id, provider_id, model_id, routing_policy=routing_policy)
+        except ConversationNotFoundError:
+            raise
+        except Exception as e:
+            logger.error("service.set_provider_model_failed", error=str(e))
+            raise
+
+    @trace_async_gen
     async def stream_message(self, conversation_id: str, content: str) -> AsyncIterator[dict]:
         try:
             async for event in self._manager.stream_message(conversation_id, content):

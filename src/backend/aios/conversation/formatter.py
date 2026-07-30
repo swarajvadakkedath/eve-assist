@@ -18,6 +18,9 @@ def format_conversation_response(conversation: Any) -> dict:
         "parent_id": conversation.parent_id if hasattr(conversation, "parent_id") else None,
         "title_is_custom": conversation.title_is_custom if hasattr(conversation, "title_is_custom") else False,
         "metadata": conversation.metadata,
+        "provider_id": getattr(conversation, "provider_id", None),
+        "model_id": getattr(conversation, "model_id", None),
+        "routing_policy": getattr(conversation, "routing_policy", None),
     }
 
 
@@ -27,7 +30,7 @@ def format_message_response(message: Message, include_tool_details: bool = False
         "conversation_id": message.conversation_id,
         "role": message.role.value if hasattr(message.role, "value") else message.role,
         "content": message.content,
-        "timestamp": message.timestamp.isoformat() if message.timestamp else "",
+        "timestamp": message.timestamp.isoformat() if hasattr(message.timestamp, "isoformat") else str(message.timestamp),
         "tokens_used": message.tokens_used,
         "attachments": message.attachments,
         "metadata": message.metadata,
@@ -80,8 +83,15 @@ def create_token_event(token: str) -> dict:
     return {"type": StreamEventType.TOKEN.value, "data": {"token": token}}
 
 
-def create_done_event(message_id: str, tokens_used: int = 0) -> dict:
-    return {"type": StreamEventType.DONE.value, "data": {"message_id": message_id, "tokens_used": tokens_used}}
+def create_done_event(message_id: str, tokens_used: int = 0, metadata: dict | None = None, routing_trace: dict | None = None, error_type: str | None = None) -> dict:
+    data: dict[str, Any] = {"message_id": message_id, "tokens_used": tokens_used}
+    if metadata:
+        data["metadata"] = metadata
+    if routing_trace:
+        data["routing_trace"] = routing_trace
+    if error_type:
+        data["error_type"] = error_type
+    return {"type": StreamEventType.DONE.value, "data": data}
 
 
 def create_error_event(error: str, recoverable: bool = True) -> dict:

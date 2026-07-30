@@ -136,10 +136,6 @@ export class CommandStore {
     this.setState({ selectedIndex: Math.max(this.state.selectedIndex - 1, 0) });
   }
 
-  selectPrevious(): void {
-    this.setState({ selectedIndex: Math.max(this.state.selectedIndex - 1, 0) });
-  }
-
   getSelectedItem(): CommandItem | null {
     let idx = 0;
     for (const group of this.state.groups) {

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { fetchApi } from "../../services/api";
 
 interface Conversation {
   id: string;
@@ -33,7 +34,7 @@ export default function ConversationSidebar({
   const fetchConversations = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/v1/chat/conversations");
+      const res = await fetchApi("/chat/conversations");
       const data = await res.json();
       setConversations(data.conversations || []);
     } catch (err) {
@@ -57,7 +58,7 @@ export default function ConversationSidebar({
   const handleRenameSubmit = async (id: string) => {
     if (renameValue.trim()) {
       try {
-        await fetch(`/api/v1/chat/conversation/${id}?title=${encodeURIComponent(renameValue)}`, {
+        await fetchApi(`/chat/conversation/${id}?title=${encodeURIComponent(renameValue)}`, {
           method: "PUT",
         });
         onRename(id, renameValue);

@@ -1,7 +1,7 @@
 """Tests for conversation data models."""
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from aios.conversation.models import (
@@ -266,8 +266,9 @@ class TestConversationModel:
     def test_conversation_update_timestamps(self):
         conv = Conversation(title="Test")
         old_updated = conv.updated_at
-        conv.updated_at = datetime.utcnow()
+        conv.updated_at = datetime.now(timezone.utc)
         assert conv.updated_at >= old_updated
+        assert conv.updated_at.tzinfo is not None
 
     def test_conversation_metadata_mutable(self):
         conv = Conversation(title="Test")

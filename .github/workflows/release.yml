@@ -1,0 +1,192 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.0.0)'
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y
+          echo "C:\Program Files (x86)\NSIS\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install MinGW and LLVM
+        shell: pwsh
+        run: |
+          choco install mingw -y
+          choco install llvm -y
+          echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Verify tools
+        shell: pwsh
+        run: |
+          rustc --version
+          cargo --version
+          node --version
+          npm --version
+          python --version
+          makensis /VERSION
+
+      - name: Install npm dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Bundle Python (download, extract, configure, install deps, verify imports)
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          npm run bundle:python
+          if ($LASTEXITCODE -ne 0) { throw "bundle:python failed" }
+          Write-Host ""
+          Write-Host "=== Embedded Python import verification ===" -ForegroundColor Cyan
+          $env:PYTHONPATH = "src-tauri\launcher;src-tauri\backend;src-tauri\python\Lib\site-packages"
+          & "src-tauri\python\python.exe" -c "
+          import sys
+          sys.path.insert(0, 'src-tauri/launcher')
+          sys.path.insert(0, 'src-tauri/backend')
+          import fastapi; print(f'  fastapi {fastapi.__version__}')
+          import httpx; print(f'  httpx {httpx.__version__}')
+          import uvicorn; print(f'  uvicorn {uvicorn.__version__}')
+          import pydantic; print(f'  pydantic {pydantic.__version__}')
+          import launcher.tauri_integration; print('  launcher.tauri_integration OK')
+          "
+
+      - name: Build frontend
+        working-directory: desktop
+        run: npm run build:frontend
+
+      - name: Build Tauri release (produces NSIS installer)
+        working-directory: desktop
+        shell: pwsh
+        run: npm run tauri:build
+
+      - name: Sign binaries (requires signing certificate)
+        if: ${{ secrets.SIGNING_CERT != '' }}
+        shell: pwsh
+        run: |
+          $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe"
+          if (-not (Test-Path $signtool)) {
+            Write-Host "signtool not found. Install Windows SDK or skip signing."
+            exit 0
+          }
+          $certPath = "$env:TEMP\certificate.pfx"
+          [Convert]::FromBase64String($env:SIGNING_CERT) | Set-Content -Path $certPath -AsByteStream
+          & $signtool sign /fd SHA256 /a /f $certPath /p "$env:SIGNING_PASSWORD" `
+            /tr http://timestamp.digicert.com /td SHA256 `
+            "desktop/src-tauri/target/release/eve-desktop.exe"
+          & $signtool sign /fd SHA256 /a /f $certPath /p "$env:SIGNING_PASSWORD" `
+            /tr http://timestamp.digicert.com /td SHA256 `
+            (Get-ChildItem "desktop/src-tauri/target/release/bundle/nsis/Eve_*.exe").FullName
+          Remove-Item $certPath -Force
+
+      - name: Verify installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path "desktop/src-tauri/target/release/bundle/nsis/Eve_*.exe" | Select-Object -First 1
+          Write-Host "Installer: $($installer.FullName)"
+          Write-Host "Size: $([math]::Round($installer.Length / 1MB, 2)) MB"
+          if (-not $installer) { throw "Installer not found" }
+
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path "desktop/src-tauri/target/release/bundle/nsis/Eve_*.exe" | Select-Object -First 1
+          $binary = Get-ChildItem -Path "desktop/src-tauri/target/release/eve-desktop.exe" | Select-Object -First 1
+          $hash = Get-FileHash -Path $installer.FullName -Algorithm SHA256
+          "$($hash.Hash.ToLower())  $($installer.Name)" | Out-File -FilePath "desktop/src-tauri/target/release/checksums.txt" -Encoding utf8
+          $hash2 = Get-FileHash -Path $binary.FullName -Algorithm SHA256
+          "$($hash2.Hash.ToLower())  $($binary.Name)" | Out-File -FilePath "desktop/src-tauri/target/release/checksums.txt" -Encoding utf8 -Append
+          Write-Host "Checksums:"
+          Get-Content "desktop/src-tauri/target/release/checksums.txt"
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: eve-desktop-${{ github.ref_name || github.sha }}
+          path: |
+            desktop/src-tauri/target/release/bundle/nsis/Eve_*.exe
+            desktop/src-tauri/target/release/eve-desktop.exe
+            desktop/src-tauri/target/release/checksums.txt
+            desktop/dependency-report.txt
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: eve-desktop-${{ github.ref_name || github.sha }}
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Eve ${{ github.ref_name }}
+          body: |
+            ## Eve ${{ github.ref_name }}
+
+            ### Downloads
+            - [Eve_${{ github.ref_name }}_x64-setup.exe](./Eve_${{ github.ref_name }}_x64-setup.exe) — NSIS installer (recommended)
+            - [eve-desktop.exe](./eve-desktop.exe) — Standalone binary
+
+            ### Checksums
+            See `checksums.txt`
+
+            ### System Requirements
+            - Windows 10 1809+ (64-bit)
+            - 500 MB free disk space
+            - WebView2 Runtime (included in Windows 11 / recent Windows 10)
+
+            ### What's Included
+            - Eve Desktop application
+            - Python 3.12.9 (embedded)
+            - All Python dependencies
+            - Launcher module
+            - Backend module
+            - Frontend (React) assets
+          files: |
+            artifacts/*
+          draft: true
+          prerelease: false

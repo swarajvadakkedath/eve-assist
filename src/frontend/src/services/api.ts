@@ -1,4 +1,15 @@
-const API_BASE = "/api/v1";
+const isTauri = typeof window !== "undefined" && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+const BACKEND_PORT = 8456;
+const API_BASE = isTauri
+  ? `http://127.0.0.1:${BACKEND_PORT}/api/v1`
+  : "/api/v1";
+
+export { API_BASE };
+
+export function fetchApi(path: string, init?: RequestInit): Promise<Response> {
+  // path should be like "/chat/messages" — no /api/v1 prefix
+  return fetch(`${API_BASE}${path}`, init);
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -185,6 +196,59 @@ export const api = {
       }),
     providers: () => request("/vision/providers"),
     monitors: () => request("/vision/monitors"),
+  },
+  providers: {
+    list: () => request("/providers"),
+    get: (id: string) => request(`/providers/${id}`),
+    availableTypes: () => request("/providers/available-types"),
+    add: (data: Record<string, unknown>) =>
+      request("/providers", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: string, data: Record<string, unknown>) =>
+      request(`/providers/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    remove: (id: string) =>
+      request(`/providers/${id}`, { method: "DELETE" }),
+    test: (id: string) =>
+      request(`/providers/${id}/test`, { method: "POST" }),
+    testAll: () =>
+      request("/providers/test-all", { method: "POST" }),
+    setDefault: (id: string) =>
+      request(`/providers/${id}/default`, { method: "PUT" }),
+    reorder: (ids: string[]) =>
+      request("/providers/reorder", {
+        method: "PUT",
+        body: JSON.stringify({ provider_ids: ids }),
+      }),
+    models: {
+      list: (id: string) => request(`/providers/${id}/models`),
+      toggle: (id: string, modelId: string, enabled: boolean) =>
+        request(`/providers/${id}/models`, {
+          method: "PUT",
+          body: JSON.stringify({ model_id: modelId, enabled }),
+        }),
+      refresh: (id: string) =>
+        request(`/providers/${id}/models/refresh`, { method: "POST" }),
+    },
+  },
+  routing: {
+    get: () => request("/routing"),
+    set: (routing: Record<string, unknown>[]) =>
+      request("/routing", {
+        method: "PUT",
+        body: JSON.stringify({ routing }),
+      }),
+    diagnostics: () => request("/routing/diagnostics"),
+    getCommercialPolicy: () => request("/routing/commercial-policy"),
+    setCommercialPolicy: (policy: string) =>
+      request("/routing/commercial-policy", {
+        method: "PUT",
+        body: JSON.stringify({ policy }),
+      }),
   },
   desktop: {
     status: () => request("/desktop/status"),

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { fetchApi } from "../../services/api";
 
 interface WorkspaceData {
   active_window: string;
@@ -60,12 +61,12 @@ export default function WorkspacePanel() {
     const fetchAll = async () => {
       try {
         const [w, p, g, e, a, t] = await Promise.all([
-          fetch("/api/v1/workspace/current").then(r => r.json()),
-          fetch("/api/v1/workspace/projects").then(r => r.json()),
-          fetch("/api/v1/workspace/git").then(r => r.json()),
-          fetch("/api/v1/workspace/editors").then(r => r.json()),
-          fetch("/api/v1/workspace/applications").then(r => r.json()),
-          fetch("/api/v1/workspace/terminals").then(r => r.json()),
+          fetchApi("/workspace/current").then(r => r.json()),
+          fetchApi("/workspace/projects").then(r => r.json()),
+          fetchApi("/workspace/git").then(r => r.json()),
+          fetchApi("/workspace/editors").then(r => r.json()),
+          fetchApi("/workspace/applications").then(r => r.json()),
+          fetchApi("/workspace/terminals").then(r => r.json()),
         ]);
         setWorkspace(w);
         setProjects(p.projects || []);

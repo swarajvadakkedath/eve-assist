@@ -1,0 +1,2 @@
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-args=-fuse-ld=lld -Wl,--exclude-all-symbols -Wl,--strip-all"]

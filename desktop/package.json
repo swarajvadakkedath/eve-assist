@@ -1,0 +1,21 @@
+{
+  "name": "eve-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:frontend": "cd \"../src/frontend\" && npx vite",
+    "build:frontend": "cd \"../src/frontend\" && npx vite build",
+    "bundle:python": "powershell -ExecutionPolicy Bypass -File scripts/bundle-python.ps1",
+    "bundle:python:sync": "powershell -ExecutionPolicy Bypass -File scripts/bundle-python.ps1 -SyncToTarget",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "eve:build": "npm run bundle:python && npm run build:frontend && npm run tauri:build",
+    "eve:build:debug": "npm run build:frontend && cd src-tauri && cargo build",
+    "eve:build:local": "npm run bundle:python:sync && npm run build:frontend && npm run tauri:build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

@@ -1,6 +1,9 @@
-/// <reference types="vite/client" />
+import { API_BASE } from "./api";
 
-const API_BASE = "/api/v1/voice";
+const API_BASE_VOICE = `${API_BASE}/voice`;
+const API_BASE_WS = API_BASE.startsWith("http")
+  ? API_BASE.replace(/^http/, "ws")
+  : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}${API_BASE}`;
 
 type VoiceEventHandler = (event: { type: string; data: any }) => void;
 
@@ -50,8 +53,7 @@ class VoiceService {
   async connect(): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) return;
 
-    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${location.host}${API_BASE}/ws`;
+    const wsUrl = `${API_BASE_WS}/voice/ws`;
 
     return new Promise((resolve, reject) => {
       try {
@@ -233,7 +235,7 @@ class VoiceService {
   }
 
   async fetchState(): Promise<VoiceState> {
-    const res = await fetch(`${API_BASE}/state`);
+    const res = await fetch(`${API_BASE_VOICE}/state`);
     const data = await res.json();
     this._state = {
       isListening: data.is_listening,
@@ -248,7 +250,7 @@ class VoiceService {
   }
 
   async startSession(conversationId?: string): Promise<{ session_id: string; conversation_id: string }> {
-    const res = await fetch(`${API_BASE}/session/start`, {
+    const res = await fetch(`${API_BASE_VOICE}/session/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversation_id: conversationId }),
@@ -263,7 +265,7 @@ class VoiceService {
   }
 
   async stopSession(): Promise<void> {
-    await fetch(`${API_BASE}/session/stop`, { method: "POST" });
+    await fetch(`${API_BASE_VOICE}/session/stop`, { method: "POST" });
     this._state = {
       isListening: false,
       isSpeaking: false,
@@ -276,12 +278,12 @@ class VoiceService {
   }
 
   async fetchConfig(): Promise<VoiceConfig> {
-    const res = await fetch(`${API_BASE}/config`);
+    const res = await fetch(`${API_BASE_VOICE}/config`);
     return res.json();
   }
 
   async updateConfig(config: Partial<VoiceConfig>): Promise<void> {
-    await fetch(`${API_BASE}/config`, {
+    await fetch(`${API_BASE_VOICE}/config`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ config }),
@@ -289,19 +291,19 @@ class VoiceService {
   }
 
   async fetchInputDevices(): Promise<{ id: string; name: string; is_default: boolean }[]> {
-    const res = await fetch(`${API_BASE}/devices/input`);
+    const res = await fetch(`${API_BASE_VOICE}/devices/input`);
     const data = await res.json();
     return data.devices || [];
   }
 
   async fetchOutputDevices(): Promise<{ id: string; name: string; is_default: boolean }[]> {
-    const res = await fetch(`${API_BASE}/devices/output`);
+    const res = await fetch(`${API_BASE_VOICE}/devices/output`);
     const data = await res.json();
     return data.devices || [];
   }
 
   async fetchVoices(): Promise<{ id: string; name: string; languages: string[]; gender: string }[]> {
-    const res = await fetch(`${API_BASE}/voices`);
+    const res = await fetch(`${API_BASE_VOICE}/voices`);
     const data = await res.json();
     return data.voices || [];
   }

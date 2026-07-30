@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { fetchApi } from "../../services/api";
 
 interface Notification {
   title: string;
@@ -14,7 +15,7 @@ export default function NotificationCenter() {
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch("/api/v1/desktop/notifications/history")
+    fetchApi("/desktop/notifications/history")
       .then((r) => r.json())
       .then((data) => {
         setNotifications(data.notifications || []);
@@ -35,7 +36,7 @@ export default function NotificationCenter() {
   }, [open]);
 
   const clearHistory = async () => {
-    await fetch("/api/v1/desktop/notifications/history", { method: "DELETE" });
+    await fetchApi("/desktop/notifications/history", { method: "DELETE" });
     setUnread(0);
   };
 

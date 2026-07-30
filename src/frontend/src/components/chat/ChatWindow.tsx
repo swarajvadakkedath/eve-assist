@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from "react";
+import { fetchApi } from "../../services/api";
 import ConversationSidebar from "../sidebar/ConversationSidebar";
+import ConversationHeader from "./ConversationHeader";
 import MarkdownRenderer from "./MarkdownRenderer";
+import type { RoutingPolicy } from "../providers/types";
 
 interface Message {
   id: string;
@@ -12,6 +15,16 @@ interface Message {
   attachments: any[];
   tool_calls?: any[];
   metadata: Record<string, any>;
+  routing_trace?: {
+    selected_provider_id?: string;
+    selected_model_id?: string;
+    fallback_reason?: string;
+    fallback_from?: string;
+    attempted_providers?: string[];
+    total_cost?: number;
+    selected_cost?: number;
+  };
+  error_type?: string;
 }
 
 export default function ChatWindow() {
@@ -24,10 +37,13 @@ export default function ChatWindow() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<any[]>([]);
+  const [currentProviderId, setCurrentProviderId] = useState<string>("");
+  const [currentModelId, setCurrentModelId] = useState<string>("");
+  const [currentRoutingPolicy, setCurrentRoutingPolicy] = useState<RoutingPolicy>("auto");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -43,7 +59,7 @@ export default function ChatWindow() {
 
   const fetchConversations = async () => {
     try {
-      const res = await fetch("/api/v1/chat/conversations");
+      const res = await fetchApi("/chat/conversations");
       const data = await res.json();
       setConversations(data.conversations || []);
     } catch (err) {
@@ -56,11 +72,17 @@ export default function ChatWindow() {
     setMessages([]);
     setError(null);
     try {
-      const res = await fetch(`/api/v1/chat/history/${id}`);
+      const res = await fetchApi(`/chat/history/${id}`);
       const data = await res.json();
       if (data.messages) {
         setMessages(data.messages);
       }
+      const convRes = await fetchApi(`/chat/conversation/${id}`);
+      const conv = await convRes.json();
+      if (conv.provider_id) setCurrentProviderId(conv.provider_id);
+      if (conv.model_id) setCurrentModelId(conv.model_id);
+      if (conv.routing_policy) setCurrentRoutingPolicy(conv.routing_policy as RoutingPolicy);
+      else setCurrentRoutingPolicy("auto");
     } catch (err) {
       console.error("Failed to fetch history", err);
     } finally {
@@ -70,11 +92,15 @@ export default function ChatWindow() {
 
   const handleNewConversation = async () => {
     try {
-      const res = await fetch("/api/v1/chat/conversation", { method: "POST" });
+      const res = await fetchApi("/chat/conversation", { method: "POST" });
       const conv = await res.json();
       setActiveId(conv.id);
       setMessages([]);
       setError(null);
+      if (conv.provider_id) setCurrentProviderId(conv.provider_id);
+      if (conv.model_id) setCurrentModelId(conv.model_id);
+      if (conv.routing_policy) setCurrentRoutingPolicy(conv.routing_policy as RoutingPolicy);
+      else setCurrentRoutingPolicy("auto");
       fetchConversations();
     } catch (err) {
       console.error("Failed to create conversation", err);
@@ -90,8 +116,9 @@ export default function ChatWindow() {
   };
 
   const handleDeleteConversation = async (id: string) => {
+    if (!window.confirm("Delete this conversation?")) return;
     try {
-      await fetch(`/api/v1/chat/conversation/${id}`, { method: "DELETE" });
+      await fetchApi(`/chat/conversation/${id}`, { method: "DELETE" });
       if (activeId === id) {
         setActiveId(null);
         setMessages([]);
@@ -109,9 +136,9 @@ export default function ChatWindow() {
   };
 
   const cancelStream = () => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
     }
     setStreaming(false);
     setStatusMessage("");
@@ -126,7 +153,7 @@ export default function ChatWindow() {
     let convId = activeId;
     if (!convId) {
       try {
-        const res = await fetch("/api/v1/chat/conversation", { method: "POST" });
+      const res = await fetchApi("/chat/conversation", { method: "POST" });
         const conv = await res.json();
         convId = conv.id;
         setActiveId(conv.id);
@@ -139,7 +166,7 @@ export default function ChatWindow() {
 
     const userMessage: Message = {
       id: `temp-${Date.now()}`,
-      conversation_id: convId,
+      conversation_id: convId || "",
       role: "user",
       content,
       timestamp: new Date().toISOString(),
@@ -152,11 +179,21 @@ export default function ChatWindow() {
     setStreamingContent("");
     setStatusMessage("Processing...");
 
+    const abort = new AbortController();
+    abortRef.current = abort;
+
     try {
-      const res = await fetch("/api/v1/chat/stream", {
+      const res = await fetchApi("/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversation_id: convId, content }),
+        body: JSON.stringify({
+          conversation_id: convId || "",
+          content,
+          provider_id: currentProviderId || undefined,
+          model_id: currentModelId || undefined,
+          routing_policy: currentRoutingPolicy || undefined,
+        }),
+        signal: abort.signal,
       });
 
       if (!res.ok) {
@@ -205,7 +242,9 @@ export default function ChatWindow() {
                       timestamp: new Date().toISOString(),
                       tokens_used: event.data.tokens_used || 0,
                       attachments: [],
-                      metadata: {},
+                      metadata: event.data.metadata || {},
+                      routing_trace: event.data.routing_trace || undefined,
+                      error_type: event.data.error_type || undefined,
                     },
                   ]);
                   setStreamingContent("");
@@ -234,9 +273,12 @@ export default function ChatWindow() {
         }
       }
     } catch (err: any) {
+      if (err.name === "AbortError") return;
       setError(err.message || "Connection error");
       setStreaming(false);
       setStatusMessage("");
+    } finally {
+      if (abortRef.current === abort) abortRef.current = null;
     }
   };
 
@@ -267,6 +309,42 @@ export default function ChatWindow() {
         onRename={handleRenameConversation}
       />
       <div className="chat-window">
+        <ConversationHeader
+          currentProviderId={currentProviderId}
+          currentModelId={currentModelId}
+          currentRoutingPolicy={currentRoutingPolicy}
+          onProviderChange={(pid) => {
+            setCurrentProviderId(pid);
+            setCurrentModelId("");
+            // Persist to conversation
+            if (activeId) {
+              fetchApi(`/chat/conversation/${activeId}`, {
+                method: "PUT",
+                body: JSON.stringify({ provider_id: pid, model_id: "" }),
+              }).catch((err) => console.error("Failed to save provider", err));
+            }
+          }}
+          onModelChange={(mid) => {
+            setCurrentModelId(mid);
+            // Persist to conversation
+            if (activeId) {
+              fetchApi(`/chat/conversation/${activeId}`, {
+                method: "PUT",
+                body: JSON.stringify({ model_id: mid }),
+              }).catch((err) => console.error("Failed to save model", err));
+            }
+          }}
+          onRoutingPolicyChange={(policy) => {
+            setCurrentRoutingPolicy(policy);
+            // Persist to conversation
+            if (activeId) {
+              fetchApi(`/chat/conversation/${activeId}`, {
+                method: "PUT",
+                body: JSON.stringify({ routing_policy: policy }),
+              }).catch((err) => console.error("Failed to save routing policy", err));
+            }
+          }}
+        />
         <div className="chat-header">
           <h1>Eve</h1>
           <div className="status-indicator">
@@ -297,6 +375,20 @@ export default function ChatWindow() {
               </div>
               <div className="message-content">
                 <MarkdownRenderer content={msg.content} />
+                {msg.role === "assistant" && msg.routing_trace && (
+                  <div className={`message-fallback-indicator ${msg.routing_trace.selected_cost && msg.routing_trace.selected_cost > 0 ? "paid" : ""}`}>
+                    {msg.routing_trace.fallback_reason ? (
+                      <span>Used {msg.routing_trace.selected_model_id || msg.routing_trace.selected_provider_id} (fallback: {msg.routing_trace.fallback_reason})</span>
+                    ) : (
+                      <span>via {msg.routing_trace.selected_model_id || msg.routing_trace.selected_provider_id}</span>
+                    )}
+                  </div>
+                )}
+                {msg.role === "assistant" && msg.error_type && (
+                  <div className="message-fallback-indicator paid">
+                    {msg.error_type === "strict_failure" ? "Strict mode: no fallback — see error" : msg.error_type}
+                  </div>
+                )}
                 <span className="message-time">
                   {new Date(msg.timestamp).toLocaleTimeString()}
                   {msg.tokens_used > 0 && ` · ${msg.tokens_used} tokens`}
@@ -346,15 +438,11 @@ export default function ChatWindow() {
             rows={1}
           />
           <button
-            className="send-button"
-            onClick={sendMessage}
-            disabled={!input.trim() || streaming}
+            className={streaming ? "send-button stop" : "send-button"}
+            onClick={streaming ? cancelStream : sendMessage}
+            disabled={!input.trim() && !streaming}
           >
-            {streaming ? (
-              <span className="stop-btn" onClick={cancelStream}>Stop</span>
-            ) : (
-              "Send"
-            )}
+            {streaming ? "Stop" : "Send"}
           </button>
         </div>
       </div>
