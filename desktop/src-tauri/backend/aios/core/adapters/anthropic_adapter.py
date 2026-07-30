@@ -10,22 +10,69 @@ import structlog
 from anthropic import AsyncAnthropic
 
 from aios.core.adapters.base import AIProviderAdapter, ChatRequest, ChatResponse, ProviderStatus
-from aios.core.model_info import ModelInfo
+from aios.core.model_info import ModelInfo, CommercialStatus, AvailabilityStatus
 from aios.core.streaming_manager import StreamingManager
 from aios.core.timeout_retry import TimeoutConfig, call_with_timeout, retry_with_backoff
 
 logger = structlog.get_logger(__name__)
 
+# Anthropic has no public /models endpoint; catalog is maintained here.
+# Updated 2026-07 — includes Claude 4 family.
 MODEL_CAPABILITIES: dict[str, dict] = {
-    "claude-sonnet-4-20250514": {"ctx": 200000, "max_out": 8192, "vision": True, "tools": True, "json": True, "reasoning": True, "quality": 9, "speed": 7},
-    "claude-sonnet-4-latest": {"ctx": 200000, "max_out": 8192, "vision": True, "tools": True, "json": True, "reasoning": True, "quality": 9, "speed": 7},
-    "claude-3-5-sonnet-20241022": {"ctx": 200000, "max_out": 8192, "vision": True, "tools": True, "json": True, "quality": 9, "speed": 7},
-    "claude-3-5-sonnet-latest": {"ctx": 200000, "max_out": 8192, "vision": True, "tools": True, "json": True, "quality": 9, "speed": 7},
-    "claude-3-5-haiku-20241022": {"ctx": 200000, "max_out": 8192, "vision": True, "tools": True, "json": True, "quality": 7, "speed": 9},
-    "claude-3-5-haiku-latest": {"ctx": 200000, "max_out": 8192, "vision": True, "tools": True, "json": True, "quality": 7, "speed": 9},
-    "claude-opus-4-20250514": {"ctx": 200000, "max_out": 8192, "vision": True, "tools": True, "json": True, "reasoning": True, "quality": 10, "speed": 4},
-    "claude-opus-4-latest": {"ctx": 200000, "max_out": 8192, "vision": True, "tools": True, "json": True, "reasoning": True, "quality": 10, "speed": 4},
-    "claude-3-opus-latest": {"ctx": 200000, "max_out": 4096, "vision": True, "tools": True, "json": True, "quality": 9, "speed": 5},
+    "claude-opus-4-20250514": {
+        "ctx": 200000, "max_out": 8192, "vision": True, "tools": True,
+        "json": True, "reasoning": True, "quality": 10, "speed": 4,
+        "input_price": 0.015, "output_price": 0.075,
+        "availability": "available",
+    },
+    "claude-opus-4-latest": {
+        "ctx": 200000, "max_out": 8192, "vision": True, "tools": True,
+        "json": True, "reasoning": True, "quality": 10, "speed": 4,
+        "input_price": 0.015, "output_price": 0.075,
+        "availability": "available",
+    },
+    "claude-sonnet-4-20250514": {
+        "ctx": 200000, "max_out": 8192, "vision": True, "tools": True,
+        "json": True, "reasoning": True, "quality": 9, "speed": 7,
+        "input_price": 0.003, "output_price": 0.015,
+        "availability": "available",
+    },
+    "claude-sonnet-4-latest": {
+        "ctx": 200000, "max_out": 8192, "vision": True, "tools": True,
+        "json": True, "reasoning": True, "quality": 9, "speed": 7,
+        "input_price": 0.003, "output_price": 0.015,
+        "availability": "available",
+    },
+    "claude-3-5-sonnet-20241022": {
+        "ctx": 200000, "max_out": 8192, "vision": True, "tools": True,
+        "json": True, "quality": 9, "speed": 7,
+        "input_price": 0.003, "output_price": 0.015,
+        "availability": "available",
+    },
+    "claude-3-5-sonnet-latest": {
+        "ctx": 200000, "max_out": 8192, "vision": True, "tools": True,
+        "json": True, "quality": 9, "speed": 7,
+        "input_price": 0.003, "output_price": 0.015,
+        "availability": "available",
+    },
+    "claude-3-5-haiku-20241022": {
+        "ctx": 200000, "max_out": 8192, "vision": True, "tools": True,
+        "json": True, "quality": 7, "speed": 9,
+        "input_price": 0.00080, "output_price": 0.00400,
+        "availability": "available",
+    },
+    "claude-3-5-haiku-latest": {
+        "ctx": 200000, "max_out": 8192, "vision": True, "tools": True,
+        "json": True, "quality": 7, "speed": 9,
+        "input_price": 0.00080, "output_price": 0.00400,
+        "availability": "available",
+    },
+    "claude-3-opus-latest": {
+        "ctx": 200000, "max_out": 4096, "vision": True, "tools": True,
+        "json": True, "quality": 9, "speed": 5,
+        "input_price": 0.015, "output_price": 0.075,
+        "availability": "deprecated",
+    },
 }
 
 
@@ -64,11 +111,20 @@ class AnthropicAdapter(AIProviderAdapter):
     async def list_models(self) -> list[ModelInfo]:
         models = []
         for mid, caps in MODEL_CAPABILITIES.items():
+            avail_str = caps.get("availability", "available")
+            try:
+                avail = AvailabilityStatus(avail_str)
+            except ValueError:
+                avail = AvailabilityStatus.AVAILABLE
+
+            is_deprecated = avail == AvailabilityStatus.DEPRECATED
+
             models.append(ModelInfo(
                 id=mid,
                 display_name=mid.replace("-", " ").title(),
                 provider_id="anthropic",
                 provider_name="Anthropic",
+                provider_type="anthropic",
                 context_window=caps["ctx"],
                 max_output_tokens=caps["max_out"],
                 supports_streaming=True,
@@ -79,6 +135,14 @@ class AnthropicAdapter(AIProviderAdapter):
                 supports_function_calling=caps.get("tools", False),
                 quality=caps.get("quality", 7),
                 speed=caps.get("speed", 5),
+                pricing={
+                    "input": caps.get("input_price", 0.0),
+                    "output": caps.get("output_price", 0.0),
+                },
+                commercial_status=CommercialStatus.PAID,
+                availability=avail,
+                deprecated=is_deprecated,
+                discovery_source="catalog",
             ))
         return models
 
@@ -196,6 +260,10 @@ class AnthropicAdapter(AIProviderAdapter):
             return self._map_error(e)
 
     def _estimate_cost(self, model: str, input_tokens: int, output_tokens: int) -> float:
+        caps = MODEL_CAPABILITIES.get(model, {})
+        if caps:
+            return (input_tokens / 1000 * caps["input_price"]) + (output_tokens / 1000 * caps["output_price"])
+        # Fallback prefix matching
         rates = {
             "claude-opus-4": (0.015, 0.075),
             "claude-sonnet-4": (0.003, 0.015),

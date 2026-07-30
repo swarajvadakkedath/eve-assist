@@ -11,7 +11,7 @@ class PluginManifest:
     id: str
     name: str
     version: str
-    sdk_version: str = "1.0.0"
+    sdk_version: str = "1.1.0-rc.1"
     author: str = ""
     description: str = ""
     license: str = "MIT"
@@ -22,7 +22,7 @@ class PluginManifest:
     permissions: list[str] = field(default_factory=list)
     dependencies: dict[str, str] = field(default_factory=dict)
     entry_point: str = "plugin.py"
-    minimum_aios_version: str = "1.0.0"
+    minimum_aios_version: str = "1.1.0-rc.1"
     icon: str = ""
     tags: list[str] = field(default_factory=list)
     category: str = "general"

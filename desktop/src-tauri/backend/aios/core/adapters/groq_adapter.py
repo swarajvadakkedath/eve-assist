@@ -9,7 +9,7 @@ import httpx
 import structlog
 
 from aios.core.adapters.base import AIProviderAdapter, ChatRequest, ChatResponse, ProviderStatus, sanitize_error
-from aios.core.model_info import ModelInfo
+from aios.core.model_info import ModelInfo, CommercialStatus, AvailabilityStatus
 from aios.core.streaming_manager import StreamingManager
 from aios.core.timeout_retry import TimeoutConfig, call_with_timeout
 
@@ -71,6 +71,7 @@ class GroqAdapter(AIProviderAdapter):
                     display_name=mid,
                     provider_id="groq",
                     provider_name="Groq",
+                    provider_type="groq",
                     context_window=m.get("context_length", 32768) or 32768,
                     max_output_tokens=m.get("max_output_tokens", 8192) or 8192,
                     supports_streaming=True,
@@ -78,11 +79,14 @@ class GroqAdapter(AIProviderAdapter):
                     supports_json=True,
                     supports_function_calling=True,
                     is_free=True,
+                    commercial_status=CommercialStatus.FREE_TIER,
+                    availability=AvailabilityStatus.AVAILABLE,
+                    discovery_source="api",
                     metadata={k: v for k, v in m.items() if k not in ("id", "object")},
                 ))
             return models
         except Exception as e:
-            logger.error("groq.list_models.failed", error=str(e))
+            logger.error("groq.list_models.failed", error=sanitize_error(str(e)[:200]))
             return []
 
     async def get_model(self, model_id: str) -> ModelInfo | None:
@@ -120,7 +124,7 @@ class GroqAdapter(AIProviderAdapter):
             return ChatResponse(provider="groq", model=request.model,
                                 content=f"Error {e.response.status_code}: {sanitize_error(e.response.text[:200])}")
         except Exception as e:
-            return ChatResponse(provider="groq", model=request.model, content=f"Error: {e}")
+            return ChatResponse(provider="groq", model=request.model, content=f"Error: {sanitize_error(str(e)[:300])}")
 
         choice = data.get("choices", [{}])[0]
         content = choice.get("message", {}).get("content", "")

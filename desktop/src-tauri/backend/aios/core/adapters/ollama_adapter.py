@@ -9,8 +9,8 @@ from typing import Any, AsyncIterator
 import httpx
 import structlog
 
-from aios.core.adapters.base import AIProviderAdapter, ChatRequest, ChatResponse, ProviderStatus
-from aios.core.model_info import ModelInfo
+from aios.core.adapters.base import AIProviderAdapter, ChatRequest, ChatResponse, ProviderStatus, sanitize_error
+from aios.core.model_info import ModelInfo, CommercialStatus, AvailabilityStatus
 from aios.core.streaming_manager import StreamingManager
 from aios.core.timeout_retry import TimeoutConfig, call_with_timeout
 
@@ -66,12 +66,16 @@ class OllamaAdapter(AIProviderAdapter):
                     display_name=name,
                     provider_id="ollama",
                     provider_name="Ollama",
+                    provider_type="ollama",
                     context_window=m.get("context_length", 8192) or 8192,
                     max_output_tokens=4096,
                     supports_streaming=True,
                     supports_tools=True,
                     supports_json=True,
                     is_free=True,
+                    commercial_status=CommercialStatus.LOCAL,
+                    availability=AvailabilityStatus.AVAILABLE,
+                    discovery_source="api",
                     metadata={
                         "modified_at": m.get("modified_at", ""),
                         "size": m.get("size", 0),
@@ -83,7 +87,7 @@ class OllamaAdapter(AIProviderAdapter):
 
             return models
         except Exception as e:
-            logger.error("ollama.list_models.failed", error=str(e))
+            logger.error("ollama.list_models.failed", error=sanitize_error(str(e)[:200]))
             return []
 
     async def get_model(self, model_id: str) -> ModelInfo | None:
@@ -115,7 +119,7 @@ class OllamaAdapter(AIProviderAdapter):
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            return ChatResponse(provider="ollama", model=request.model, content=f"Error: {e}")
+            return ChatResponse(provider="ollama", model=request.model, content=f"Error: {sanitize_error(str(e)[:300])}")
 
         content = data.get("message", {}).get("content", "")
         total_tokens = data.get("eval_count", 0)

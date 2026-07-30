@@ -147,6 +147,7 @@ class Conversation:
     branch_point_message_id: str | None = None
     provider_id: str | None = None
     model_id: str | None = None
+    routing_policy: str | None = None
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None

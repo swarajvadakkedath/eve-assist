@@ -16,11 +16,31 @@ from aios.core.model_info import ModelInfo
 # ---------------------------------------------------------------------------
 
 def sanitize_error(text: str) -> str:
-    return re.sub(
-        r'(sk-|api[_-]?key["\s:=]+|api-?key["\s:=]+)[a-zA-Z0-9_\-]{8,}',
-        r'\1***REDACTED***',
-        text
-    )
+    """Redact API keys, tokens, and secrets from error strings.
+
+    Covers: OpenAI (sk-*), Anthropic (sk-ant-*), Google (AIza*),
+    Groq (gsk_*), Bearer tokens, and generic api_key patterns.
+    """
+    patterns = [
+        # OpenAI / generic sk- prefix keys
+        (r'(sk-)[a-zA-Z0-9_\-]{8,}', r'\1***REDACTED***'),
+        # Anthropic sk-ant-* keys
+        (r'(sk-ant-)[a-zA-Z0-9_\-]{8,}', r'\1***REDACTED***'),
+        # Google AIza* keys
+        (r'(AIza)[a-zA-Z0-9_\-]{20,}', r'\1***REDACTED***'),
+        # Groq gsk_* keys
+        (r'(gsk_)[a-zA-Z0-9_\-]{8,}', r'\1***REDACTED***'),
+        # Bearer tokens (any long alphanumeric after Bearer)
+        (r'(Bearer\s+)[a-zA-Z0-9_\-]{20,}', r'\1***REDACTED***'),
+        # x-api-key header values
+        (r'(x-api-key["\s:=]+)[a-zA-Z0-9_\-]{8,}', r'\1***REDACTED***'),
+        # api_key / api-key / apikey with value
+        (r'(api[_-]?key["\s:=]+)[a-zA-Z0-9_\-]{8,}', r'\1***REDACTED***'),
+    ]
+    result = text
+    for pattern, replacement in patterns:
+        result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+    return result
 
 
 # ---------------------------------------------------------------------------

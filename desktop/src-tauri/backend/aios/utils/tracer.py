@@ -10,6 +10,7 @@ import time
 from contextlib import asynccontextmanager, contextmanager
 
 from aios.utils.logger import get_logger
+from aios.core.adapters.base import sanitize_error
 
 _log = get_logger("aios.tracer")
 
@@ -47,7 +48,7 @@ def _make_async_tracer(func, category: str):
             return result
         except Exception as e:
             elapsed = time.monotonic() - _t
-            _log.error(f"{category}.threw", function=f"{mod}.{qual}", duration_ms=round(elapsed * 1000), error=str(e))
+            _log.error(f"{category}.threw", function=f"{mod}.{qual}", duration_ms=round(elapsed * 1000), error=sanitize_error(str(e)[:200]))
             raise
 
     return wrapper
@@ -62,7 +63,7 @@ async def trace_async_block(name: str, category: str = "trace"):
         yield
     except Exception as e:
         elapsed = time.monotonic() - _t
-        _log.error(f"{category}.threw", function=name, duration_ms=round(elapsed * 1000), error=str(e))
+        _log.error(f"{category}.threw", function=name, duration_ms=round(elapsed * 1000), error=sanitize_error(str(e)[:200]))
         raise
     else:
         elapsed = time.monotonic() - _t
@@ -102,7 +103,7 @@ def _make_sync_tracer(func, category: str):
             return result
         except Exception as e:
             elapsed = time.monotonic() - _t
-            _log.error(f"{category}.threw", function=f"{mod}.{qual}", duration_ms=round(elapsed * 1000), error=str(e))
+            _log.error(f"{category}.threw", function=f"{mod}.{qual}", duration_ms=round(elapsed * 1000), error=sanitize_error(str(e)[:200]))
             raise
 
     return wrapper
@@ -117,7 +118,7 @@ def trace_sync_block(name: str, category: str = "sync"):
         yield
     except Exception as e:
         elapsed = time.monotonic() - _t
-        _log.error(f"{category}.threw", function=name, duration_ms=round(elapsed * 1000), error=str(e))
+        _log.error(f"{category}.threw", function=name, duration_ms=round(elapsed * 1000), error=sanitize_error(str(e)[:200]))
         raise
     else:
         elapsed = time.monotonic() - _t
@@ -163,7 +164,7 @@ def _make_async_gen_tracer(func, category: str):
         except Exception as e:
             elapsed = time.monotonic() - _t_start
             _log.error(f"{category}.threw", function=f"{mod}.{qual}",
-                       duration_ms=round(elapsed * 1000), error=str(e))
+                       duration_ms=round(elapsed * 1000), error=sanitize_error(str(e)[:200]))
             raise
 
     return wrapper
@@ -196,7 +197,7 @@ async def call_with_timeout(coro, timeout: float = FUTURE_WARN_SECONDS, label: s
         raise AsyncTimeoutError(f"{label} timed out after {timeout}s") from None
     except Exception as e:
         elapsed = time.monotonic() - _t
-        _log.error("timeout.threw", function=label, duration_ms=round(elapsed * 1000), error=str(e))
+        _log.error("timeout.threw", function=label, duration_ms=round(elapsed * 1000), error=sanitize_error(str(e)[:200]))
         raise
 
 
@@ -213,7 +214,7 @@ async def async_timeout_block(name: str, timeout: float = FUTURE_WARN_SECONDS):
         raise AsyncTimeoutError(f"{name} timed out after {timeout}s") from None
     except Exception as e:
         elapsed = time.monotonic() - _t
-        _log.error("timeout.threw", function=name, duration_ms=round(elapsed * 1000), error=str(e))
+        _log.error("timeout.threw", function=name, duration_ms=round(elapsed * 1000), error=sanitize_error(str(e)[:200]))
         raise
     else:
         elapsed = time.monotonic() - _t

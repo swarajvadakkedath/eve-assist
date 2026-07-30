@@ -215,3 +215,145 @@ async def set_routing(body: SetRoutingRequest, request: Request):
     manager = _get_manager(request)
     manager.set_routing([r.model_dump() for r in body.routing])
     return {"routing": manager.get_routing()}
+
+
+# ------------------------------------------------------------------
+# Commercial policy endpoints (spec §7-11)
+# ------------------------------------------------------------------
+
+class CommercialPolicyRequest(BaseModel):
+    policy: str  # "free_only" | "no_direct_paid" | "allow_paid"
+
+
+@router.get("/api/v1/routing/commercial-policy")
+@trace_async
+async def get_commercial_policy(request: Request):
+    manager = _get_manager(request)
+    smart_router = getattr(manager, "_smart_router", None)
+    policy = smart_router.commercial_policy.value if smart_router else "allow_paid"
+    return {"policy": policy}
+
+
+@router.put("/api/v1/routing/commercial-policy")
+@trace_async
+async def set_commercial_policy(body: CommercialPolicyRequest, request: Request):
+    from aios.core.routing_types import CommercialPolicy
+    try:
+        policy = CommercialPolicy(body.policy)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid policy: {body.policy}. Must be free_only, no_direct_paid, or allow_paid")
+    manager = _get_manager(request)
+    smart_router = getattr(manager, "_smart_router", None)
+    if smart_router:
+        smart_router.commercial_policy = policy
+    return {"policy": policy.value}
+
+
+# ------------------------------------------------------------------
+# Multi-account aggregation endpoints
+# ------------------------------------------------------------------
+
+@router.get("/api/v1/providers/models/free")
+@trace_async
+async def get_all_free_models(request: Request):
+    manager = _get_manager(request)
+    return {"models": manager.get_all_free_models()}
+
+
+@router.get("/api/v1/providers/types/{provider_type}/models")
+@trace_async
+async def get_provider_type_models(provider_type: str, request: Request):
+    manager = _get_manager(request)
+    return {"models": manager.get_provider_type_models(provider_type)}
+
+
+@router.get("/api/v1/providers/{provider_id}/models/{model_id}/status")
+@trace_async
+async def get_model_commercial_status(provider_id: str, model_id: str, request: Request):
+    manager = _get_manager(request)
+    result = manager.get_model_commercial_status(provider_id, model_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.get("/api/v1/providers/{provider_id}/models/{model_id}/rate-limit")
+@trace_async
+async def get_model_rate_limit(provider_id: str, model_id: str, request: Request):
+    manager = _get_manager(request)
+    rl = manager.health_monitor.get_model_rate_limit(provider_id, model_id)
+    return rl.to_dict()
+
+
+@router.get("/api/v1/providers/health")
+@trace_async
+async def get_all_health(request: Request):
+    manager = _get_manager(request)
+    all_health = manager.health_monitor.get_all_health()
+    return {"health": {pid: h.to_dict() for pid, h in all_health.items()}}
+
+
+@router.get("/api/v1/providers/{provider_id}/health")
+@trace_async
+async def get_provider_health(provider_id: str, request: Request):
+    manager = _get_manager(request)
+    health = manager.health_monitor.get_health(provider_id)
+    if not health:
+        raise HTTPException(status_code=404, detail="No health data for this provider")
+    return health.to_dict()
+
+
+# ------------------------------------------------------------------
+# Routing diagnostics endpoint (spec §36)
+# ------------------------------------------------------------------
+
+@router.get("/api/v1/routing/diagnostics")
+@trace_async
+async def get_routing_diagnostics(request: Request):
+    """Sanitized routing diagnostics — no credentials exposed.
+
+    Returns:
+      - commercial_policy: current commercial policy setting
+      - provider health: per-instance health status (sanitized)
+      - rate limits: per-model rate limit state
+      - capability summary: per-provider models + capabilities
+    """
+    manager = _get_manager(request)
+    smart_router = getattr(manager, "_smart_router", None)
+
+    # Commercial policy
+    commercial_policy = "allow_paid"
+    if smart_router:
+        commercial_policy = smart_router.commercial_policy.value
+
+    # Provider health (sanitized via to_dict)
+    all_health = manager.health_monitor.get_all_health()
+    health_summary = {}
+    for pid, h in all_health.items():
+        hd = h.to_dict()
+        # Strip any potential credential fields (defense in depth)
+        hd.pop("api_key", None)
+        hd.pop("secret", None)
+        hd.pop("token", None)
+        health_summary[pid] = hd
+
+    # Rate limits (all models, sanitized)
+    all_rate_limits = manager.health_monitor.get_all_model_rate_limits()
+    rate_limit_summary = {}
+    for key, rl in all_rate_limits.items():
+        rl_dict = rl.to_dict()
+        rl_dict.pop("api_key", None)
+        rate_limit_summary[key] = rl_dict
+
+    # Capability summary (if smart_router available)
+    capability_summary = {}
+    if smart_router:
+        capability_summary = smart_router.get_capability_summary()
+
+    return {
+        "commercial_policy": commercial_policy,
+        "routing_config": manager.get_routing(),
+        "health": health_summary,
+        "rate_limits": rate_limit_summary,
+        "capabilities": capability_summary,
+    }

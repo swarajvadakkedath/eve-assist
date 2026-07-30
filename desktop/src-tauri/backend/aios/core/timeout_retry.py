@@ -8,6 +8,8 @@ from typing import Any, Callable, TypeVar
 
 import structlog
 
+from aios.core.adapters.base import sanitize_error
+
 logger = structlog.get_logger(__name__)
 
 T = TypeVar("T")
@@ -127,7 +129,7 @@ async def retry_with_backoff(
                     attempt=attempt + 1,
                     max_retries=policy.max_retries,
                     delay=round(delay, 2),
-                    error=str(e),
+                    error=sanitize_error(str(e)[:200]),
                 )
                 await asyncio.sleep(delay)
             else:
@@ -136,7 +138,7 @@ async def retry_with_backoff(
                     provider=provider_id,
                     operation=operation,
                     attempts=policy.max_retries + 1,
-                    error=str(e),
+                    error=sanitize_error(str(e)[:200]),
                 )
                 raise ProviderRetryExhausted(
                     provider_id, operation, policy.max_retries + 1, str(e)

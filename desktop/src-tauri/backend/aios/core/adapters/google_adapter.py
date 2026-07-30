@@ -87,7 +87,7 @@ class GoogleAdapter(AIProviderAdapter):
                 ))
             return models
         except Exception as e:
-            logger.error("google.list_models.failed", error=str(e))
+            logger.error("google.list_models.failed", error=sanitize_error(str(e)[:200]))
             return []
 
     async def get_model(self, model_id: str) -> ModelInfo | None:

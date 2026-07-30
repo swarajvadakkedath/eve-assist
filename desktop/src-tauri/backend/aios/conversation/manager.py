@@ -26,6 +26,7 @@ from aios.conversation.exceptions import (
     MemoryError,
     StreamError,
 )
+from aios.core.routing_types import NoEligibleRouteError
 from aios.conversation.prompts import (
     build_system_prompt,
     build_memory_context,
@@ -45,6 +46,8 @@ from aios.conversation.formatter import (
     create_final_response_event,
 )
 from aios.utils.tracer import trace_async, trace_async_gen
+from aios.utils.logger import get_logger
+from aios.core.adapters.base import sanitize_error
 from aios.conversation.stream import StreamManager
 from aios.conversation.session import SessionManager
 from aios.conversation.history import HistoryManager
@@ -160,6 +163,7 @@ class ConversationManager(IConversationService):
         conversation_id: str,
         provider_id: str | None = None,
         model_id: str | None = None,
+        routing_policy: str | None = None,
     ) -> Conversation:
         conv = await self.get_conversation(conversation_id)
         changed = False
@@ -168,6 +172,9 @@ class ConversationManager(IConversationService):
             changed = True
         if model_id is not None and conv.model_id != model_id:
             conv.model_id = model_id
+            changed = True
+        if routing_policy is not None and conv.routing_policy != routing_policy:
+            conv.routing_policy = routing_policy
             changed = True
         if changed:
             conv.updated_at = datetime.now(timezone.utc)
@@ -323,7 +330,10 @@ class ConversationManager(IConversationService):
             if conv.model_id:
                 req.model = conv.model_id
             from aios.core.smart_router import RoutingPolicy
-            policy = RoutingPolicy.STRICT if conv.provider_id else RoutingPolicy.AUTO
+            if conv.routing_policy:
+                policy = RoutingPolicy(conv.routing_policy)
+            else:
+                policy = RoutingPolicy.STRICT if conv.provider_id else RoutingPolicy.AUTO
             ai_response = await self._ai_router.route(req, routing_policy=policy)
         except Exception as e:
             raise AIProviderError(f"AI provider failed: {e}", original=e)
@@ -442,7 +452,10 @@ class ConversationManager(IConversationService):
             if conv.model_id:
                 req.model = conv.model_id
             from aios.core.smart_router import RoutingPolicy
-            policy = RoutingPolicy.STRICT if conv.provider_id else RoutingPolicy.AUTO
+            if conv.routing_policy:
+                policy = RoutingPolicy(conv.routing_policy)
+            else:
+                policy = RoutingPolicy.STRICT if conv.provider_id else RoutingPolicy.AUTO
             ai_response = await self._ai_router.route(req, routing_policy=policy)
         except Exception as e:
             raise AIProviderError(f"AI provider failed: {e}", original=e)
@@ -577,10 +590,14 @@ class ConversationManager(IConversationService):
             if conv.model_id:
                 req.model = conv.model_id
             from aios.core.smart_router import RoutingPolicy
-            policy = RoutingPolicy.STRICT if conv.provider_id else RoutingPolicy.AUTO
-            token_gen = self._ai_router.route_stream(req, routing_policy=policy)
+            if conv.routing_policy:
+                policy = RoutingPolicy(conv.routing_policy)
+            else:
+                policy = RoutingPolicy.STRICT if conv.provider_id else RoutingPolicy.AUTO
+            stream_result = await self._ai_router.route_stream(req, routing_policy=policy)
+            routing_trace = stream_result.trace.to_dict()
 
-            async for event in self._stream_manager.stream(uuid4().hex, token_gen):
+            async for event in self._stream_manager.stream(stream_result.request_id, stream_result.tokens, done_metadata={"routing_trace": routing_trace}):
                 if event["type"] == StreamEventType.ERROR.value:
                     had_error = True
                 if event["type"] == StreamEventType.TOKEN.value:
@@ -588,11 +605,16 @@ class ConversationManager(IConversationService):
                     tokens_used += 1
                 yield event
 
+        except NoEligibleRouteError as e:
+            logger.error("stream.strict_failure", error=str(e))
+            yield create_error_event(f"Strict routing failed: {e.reason}", recoverable=False)
+            had_error = True
+            full_content = f"Strict routing failed: {e.reason}"
         except Exception as e:
             logger.error("stream.failed", error=str(e))
-            yield create_error_event(str(e), recoverable=True)
+            yield create_error_event(sanitize_error(str(e)), recoverable=True)
             had_error = True
-            full_content = full_content or f"I encountered an error: {e}"
+            full_content = full_content or f"I encountered an error: {sanitize_error(str(e))}"
 
         latency_ms = (time.monotonic() - start_time) * 1000
 

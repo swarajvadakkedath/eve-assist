@@ -38,6 +38,7 @@ from aios.core.adapters.base import (
     ChatRequest,
     ChatResponse,
     ProviderStatus,
+    sanitize_error,
 )
 from aios.core.adapters import (
     OpenAIAdapter,
@@ -46,6 +47,8 @@ from aios.core.adapters import (
     OllamaAdapter,
     GroqAdapter,
     OpenAICompatibleAdapter,
+    CohereAdapter,
+    CloudflareAdapter,
 )
 from aios.core.timeout_retry import TimeoutConfig, call_with_timeout
 from aios.utils.tracer import trace_async, trace_sync
@@ -65,6 +68,9 @@ PROVIDER_META = {
     "huggingface": {"name": "Hugging Face", "endpoint": "https://api-inference.huggingface.co", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
     "ollama": {"name": "Ollama", "endpoint": "http://localhost:11434", "models_endpoint": "/api/tags", "chat_endpoint": "/api/chat", "api_key_in": None, "auth_header": None, "auth_prefix": None},
     "lm_studio": {"name": "LM Studio", "endpoint": "http://localhost:1234/v1", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
+    "cohere": {"name": "Cohere", "endpoint": "https://api.cohere.com", "models_endpoint": None, "chat_endpoint": "/v2/chat", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
+    "cloudflare": {"name": "Cloudflare Workers AI", "endpoint": "", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
+    "nvidia": {"name": "NVIDIA NIM", "endpoint": "https://integrate.api.nvidia.com/v1", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
     "openai_compatible": {"name": "OpenAI Compatible", "endpoint": "", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
     "custom": {"name": "Custom Provider", "endpoint": "", "models_endpoint": None, "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
 }
@@ -233,7 +239,7 @@ class ProviderManager:
                 "Persist": win32cred.CRED_PERSIST_LOCAL_MACHINE,
             })
         except Exception as e:
-            logger.error("cred_store_failed", provider_id=provider_id, error=str(e))
+            logger.error("cred_store_failed", provider_id=provider_id, error=sanitize_error(str(e)[:200]))
             raise SecureStorageError(f"Failed to store credential: {e}") from e
 
     @trace_sync
@@ -296,7 +302,7 @@ class ProviderManager:
             except Exception as e:
                 failed += 1
                 provider["credential_migration_required"] = True
-                logger.error("credential.migration_failed", provider_id=pid, error=str(e))
+                logger.error("credential.migration_failed", provider_id=pid, error=sanitize_error(str(e)[:200]))
 
         if migrated > 0 or failed > 0:
             self._save()
@@ -377,8 +383,24 @@ class ProviderManager:
                     timeout_config=timeout_config,
                     streaming_manager=self._streaming,
                 )
+            elif ptype == "cohere":
+                return CohereAdapter(
+                    api_key=api_key or "",
+                    base_url=base_url or "https://api.cohere.com",
+                    timeout_config=timeout_config,
+                    streaming_manager=self._streaming,
+                )
+            elif ptype == "cloudflare":
+                account_id = provider.get("account_id", "")
+                return CloudflareAdapter(
+                    api_key=api_key or "",
+                    base_url=base_url or "",
+                    account_id=account_id,
+                    timeout_config=timeout_config,
+                    streaming_manager=self._streaming,
+                )
             elif ptype in ("openrouter", "mistral", "cerebras", "github_models",
-                           "huggingface", "lm_studio", "openai_compatible", "custom"):
+                           "huggingface", "lm_studio", "nvidia", "openai_compatible", "custom"):
                 meta = PROVIDER_META.get(ptype, {})
                 pname = provider.get("name") or meta.get("name", ptype)
                 resolved_base = base_url or meta.get("endpoint", "")
@@ -394,7 +416,7 @@ class ProviderManager:
                 logger.warning("provider.unknown_type", type=ptype)
                 return None
         except Exception as e:
-            logger.error("provider.adapter_creation_failed", provider_id=provider["id"], error=str(e))
+            logger.error("provider.adapter_creation_failed", provider_id=provider["id"], error=sanitize_error(str(e)[:200]))
             return None
 
     def _register_adapter(self, provider: dict):
@@ -693,7 +715,7 @@ class ProviderManager:
                 results.append({
                     "provider_id": p["id"],
                     "success": False,
-                    "error": str(e) or "Connection test timed out",
+                    "error": sanitize_error(str(e)) or "Connection test timed out",
                     "status": "offline",
                 })
         return results
@@ -726,7 +748,7 @@ class ProviderManager:
                 self._save()
             return fetched or provider.get("models", [])
         except Exception as e:
-            logger.warning("fetch_models.failed", provider_id=provider_id, error=str(e))
+            logger.warning("fetch_models.failed", provider_id=provider_id, error=sanitize_error(str(e)[:200]))
             return provider.get("models", [])
 
     async def _fetch_and_merge(self, provider: dict, adapter: AIProviderAdapter) -> list[dict]:
@@ -734,7 +756,7 @@ class ProviderManager:
         try:
             discovered = await adapter.list_models()
         except Exception as e:
-            logger.warning("fetch_and_merge.list_models_failed", provider=provider["id"], error=str(e))
+            logger.warning("fetch_and_merge.list_models_failed", provider=provider["id"], error=sanitize_error(str(e)[:200]))
             discovered = []
 
         # Convert to storage format
@@ -824,6 +846,67 @@ class ProviderManager:
         self._smart_router.set_routing_config(self._routing_config)
 
     # ------------------------------------------------------------------
+    # Multi-account model aggregation
+    # ------------------------------------------------------------------
+
+    @trace_sync
+    def get_all_free_models(self) -> list[dict[str, Any]]:
+        """Aggregate all free-tier models across all registered providers."""
+        free = []
+        for p in self._providers:
+            pid = p["id"]
+            for m in p.get("models", []):
+                if not m.get("enabled", True):
+                    continue
+                cs = m.get("commercialStatus", m.get("commercial_status", "unknown"))
+                is_free = m.get("isFree", False)
+                if cs in ("free", "free_tier", "local") or is_free:
+                    entry = dict(m)
+                    entry["provider_instance_id"] = pid
+                    entry["provider_type"] = p["type"]
+                    free.append(entry)
+        return free
+
+    @trace_sync
+    def get_provider_type_models(self, provider_type: str) -> list[dict[str, Any]]:
+        """List all models for a given provider type across all instances."""
+        models = []
+        for p in self._providers:
+            if p["type"] != provider_type:
+                continue
+            pid = p["id"]
+            for m in p.get("models", []):
+                entry = dict(m)
+                entry["provider_instance_id"] = pid
+                entry["provider_type"] = p["type"]
+                models.append(entry)
+        return models
+
+    @trace_sync
+    def get_model_commercial_status(self, provider_id: str, model_id: str) -> dict[str, Any]:
+        """Get commercial status and pricing for a specific model."""
+        provider = self._get_provider(provider_id)
+        if not provider:
+            return {"error": "Provider not found"}
+        for m in provider.get("models", []):
+            if m["id"] == model_id:
+                return {
+                    "provider_id": provider_id,
+                    "provider_type": provider["type"],
+                    "model_id": model_id,
+                    "commercial_status": m.get("commercialStatus", m.get("commercial_status", "unknown")),
+                    "is_free": m.get("isFree", False),
+                    "pricing": m.get("pricing", {"input": 0.0, "output": 0.0}),
+                    "availability": m.get("availability", "available"),
+                }
+        return {"error": "Model not found"}
+
+    @trace_sync
+    def is_model_rate_limited(self, provider_id: str, model_id: str) -> bool:
+        """Check if a specific model is currently rate-limited."""
+        return not self._health_monitor.is_model_available(provider_id, model_id)
+
+    # ------------------------------------------------------------------
     # Registration with SmartRouter
     # ------------------------------------------------------------------
 
@@ -876,6 +959,6 @@ class ProviderManager:
             try:
                 await adapter.disconnect()
             except Exception as e:
-                logger.warning("provider.disconnect_failed", provider_id=pid, error=str(e))
+                logger.warning("provider.disconnect_failed", provider_id=pid, error=sanitize_error(str(e)[:200]))
         self._adapters.clear()
         logger.info("provider_manager.shutdown_complete")

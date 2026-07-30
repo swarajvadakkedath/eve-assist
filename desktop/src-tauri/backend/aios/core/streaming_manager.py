@@ -35,15 +35,10 @@ class StreamingManager:
         self,
         default_timeout: float = 120.0,
         default_heartbeat: float = 15.0,
-        max_reconnect_attempts: int = 2,
-        reconnect_delay: float = 1.0,
     ):
         self._default_timeout = default_timeout
         self._default_heartbeat = default_heartbeat
-        self._max_reconnect = max_reconnect_attempts
-        self._reconnect_delay = reconnect_delay
         self._cancelled: dict[str, bool] = {}
-        self._active: dict[str, asyncio.Task] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -124,7 +119,6 @@ class StreamingManager:
             raise
         finally:
             self._cancelled.pop(stream_id, None)
-            self._active.pop(stream_id, None)
             if hb_task:
                 hb_task.cancel()
                 try:
@@ -133,17 +127,15 @@ class StreamingManager:
                     pass
 
     def cancel(self, stream_id: str) -> bool:
-        """Cancel an active stream by ID. Returns True if found."""
+        """Cancel an active stream by ID. Returns True if stream was registered."""
         if stream_id in self._cancelled:
             self._cancelled[stream_id] = True
-            task = self._active.get(stream_id)
-            if task and not task.done():
-                task.cancel()
             return True
         return False
 
     def is_active(self, stream_id: str) -> bool:
-        return stream_id in self._active and not self._active[stream_id].done()
+        """Return True if the stream is registered and not yet cancelled."""
+        return stream_id in self._cancelled and not self._cancelled[stream_id]
 
     def cancel_all(self):
         for sid in list(self._cancelled.keys()):

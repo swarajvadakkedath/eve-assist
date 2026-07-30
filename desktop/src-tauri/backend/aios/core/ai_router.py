@@ -11,6 +11,7 @@ import structlog
 
 from aios.config.settings import AiosSettings
 from aios.utils.tracer import trace_async, call_with_timeout, AsyncTimeoutError, trace_async_gen
+from aios.core.adapters.base import sanitize_error
 
 logger = structlog.get_logger(__name__)
 
@@ -318,7 +319,7 @@ class AIRouter:
             except Exception as e:
                 last_exception = e
                 self._circuit_breaker.record_failure(provider_name)
-                logger.warning("router.route.failed", provider=provider_name, error=str(e))
+                logger.warning("router.route.failed", provider=provider_name, error=sanitize_error(str(e)[:200]))
                 continue
 
         raise RuntimeError(f"All AI providers failed") from last_exception
@@ -365,7 +366,7 @@ class AIRouter:
             except Exception as e:
                 last_exception = e
                 self._circuit_breaker.record_failure(provider_name)
-                logger.warning("router.route_stream.failed", provider=provider_name, error=str(e))
+                logger.warning("router.route_stream.failed", provider=provider_name, error=sanitize_error(str(e)[:200]))
                 continue
 
         raise RuntimeError(f"All AI providers failed for stream") from last_exception

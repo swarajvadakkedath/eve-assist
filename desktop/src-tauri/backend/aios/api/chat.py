@@ -70,6 +70,7 @@ class UpdateConversationRequest(BaseModel):
     title: str | None = None
     provider_id: str | None = None
     model_id: str | None = None
+    routing_policy: str | None = None
 
 
 @router.put("/chat/conversation/{conversation_id}")
@@ -80,8 +81,13 @@ async def update_conversation(req: Request, conversation_id: str, body: UpdateCo
             conv = await cs.rename_conversation(conversation_id, body.title)
         else:
             conv = await cs.get_conversation(conversation_id)
-        if body and (body.provider_id is not None or body.model_id is not None):
-            conv = await cs.set_provider_model(conversation_id, body.provider_id, body.model_id)
+        if body and (body.provider_id is not None or body.model_id is not None or body.routing_policy is not None):
+            conv = await cs.set_provider_model(
+                conversation_id,
+                body.provider_id,
+                body.model_id,
+                routing_policy=body.routing_policy,
+            )
         return format_conversation_response(conv)
     except ConversationNotFoundError as e:
         return {"error": str(e)}, 404

@@ -3,7 +3,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
+
+
+class CommercialStatus(str, Enum):
+    """How a model is billed — never guess, use explicit classification."""
+    FREE = "free"              # Explicitly free (e.g. OpenRouter free variant, Ollama local)
+    FREE_TIER = "free_tier"    # Zero-cost under account rate limits (e.g. Google free tier)
+    CREDIT_BASED = "credit_based"  # Uses account credits (e.g. HuggingFace)
+    PAID = "paid"              # Standard paid model
+    LOCAL = "local"            # Local inference (Ollama, LM Studio)
+    UNKNOWN = "unknown"        # Cannot determine — never equate with FREE
+
+
+class AvailabilityStatus(str, Enum):
+    """Current availability of a model from a provider."""
+    AVAILABLE = "available"
+    DEPRECATED = "deprecated"
+    PREVIEW = "preview"
+    EXPERIMENTAL = "experimental"
+    REMOVED = "removed"
+    UNKNOWN = "unknown"
 
 
 @dataclass
@@ -49,6 +70,15 @@ class ModelInfo:
     experimental: bool = False
     enabled: bool = True
 
+    # --- New fields for provider expansion ---
+    commercial_status: CommercialStatus = CommercialStatus.UNKNOWN
+    availability: AvailabilityStatus = AvailabilityStatus.AVAILABLE
+    provider_type: str = ""                    # e.g. "google", "openrouter"
+    provider_instance_id: str = ""             # e.g. "google-abc123" (distinct from provider_type)
+    discovered_at: str = ""                    # ISO timestamp of when this model was discovered
+    discovery_source: str = ""                 # "api", "catalog", "merged"
+    raw_provider_metadata: dict[str, Any] = field(default_factory=dict)  # Safe subset of provider response
+
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -57,6 +87,8 @@ class ModelInfo:
             "displayName": self.display_name,
             "providerId": self.provider_id,
             "providerName": self.provider_name,
+            "providerType": self.provider_type,
+            "providerInstanceId": self.provider_instance_id,
             "contextWindow": self.context_window,
             "maxOutputTokens": self.max_output_tokens,
             "supportsStreaming": self.supports_streaming,
@@ -83,20 +115,42 @@ class ModelInfo:
             "latency": self.latency,
             "pricing": self.pricing,
             "isFree": self.is_free,
+            "commercialStatus": self.commercial_status.value,
+            "availability": self.availability.value,
             "recommended": self.recommended,
             "deprecated": self.deprecated,
             "experimental": self.experimental,
             "enabled": self.enabled,
+            "discoveredAt": self.discovered_at,
+            "discoverySource": self.discovery_source,
+            "rawProviderMetadata": self.raw_provider_metadata,
             "metadata": self.metadata,
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ModelInfo:
+        # Parse enums safely
+        cs = d.get("commercialStatus", d.get("commercial_status", "unknown"))
+        if isinstance(cs, str):
+            try:
+                cs = CommercialStatus(cs)
+            except ValueError:
+                cs = CommercialStatus.UNKNOWN
+
+        av = d.get("availability", "available")
+        if isinstance(av, str):
+            try:
+                av = AvailabilityStatus(av)
+            except ValueError:
+                av = AvailabilityStatus.UNKNOWN
+
         return cls(
             id=d["id"],
             display_name=d.get("displayName", d["id"]),
             provider_id=d.get("providerId", d.get("provider", "")),
             provider_name=d.get("providerName", d.get("provider", "")),
+            provider_type=d.get("providerType", d.get("provider_type", "")),
+            provider_instance_id=d.get("providerInstanceId", d.get("provider_instance_id", "")),
             context_window=d.get("contextWindow", d.get("contextLength", 4096)),
             max_output_tokens=d.get("maxOutputTokens", d.get("maxOutput", 4096)),
             supports_streaming=d.get("supportsStreaming", True),
@@ -123,10 +177,15 @@ class ModelInfo:
             latency=d.get("latency", 0.0),
             pricing=d.get("pricing", {"input": 0.0, "output": 0.0}),
             is_free=d.get("isFree", False),
+            commercial_status=cs,
+            availability=av,
             recommended=d.get("recommended", False),
             deprecated=d.get("deprecated", False),
             experimental=d.get("experimental", False),
             enabled=d.get("enabled", True),
+            discovered_at=d.get("discoveredAt", d.get("discovered_at", "")),
+            discovery_source=d.get("discoverySource", d.get("discovery_source", "")),
+            raw_provider_metadata=d.get("rawProviderMetadata", d.get("raw_provider_metadata", {})),
             metadata=d.get("metadata", {}),
         )
 
@@ -137,6 +196,16 @@ class ModelInfo:
             "input": d.get("costPer1kInput", d.get("cost_per_1k_input", 0.0)),
             "output": d.get("costPer1kOutput", d.get("cost_per_1k_output", 0.0)),
         }
+
+        # Determine commercial status from legacy is_free / pricing
+        is_free = d.get("isFree", d.get("is_free", False))
+        if is_free:
+            cs = CommercialStatus.FREE
+        elif pricing["input"] == 0.0 and pricing["output"] == 0.0:
+            cs = CommercialStatus.FREE_TIER
+        else:
+            cs = CommercialStatus.PAID
+
         return cls(
             id=d["id"],
             display_name=d.get("displayName", d["id"]),
@@ -159,8 +228,10 @@ class ModelInfo:
             speed=d.get("speed", 5),
             quality=d.get("quality", 5),
             pricing=pricing,
-            is_free=d.get("isFree", d.get("is_free", False)),
+            is_free=is_free,
+            commercial_status=cs,
             recommended=d.get("recommended", False),
             deprecated=d.get("deprecated", False),
             enabled=d.get("enabled", True),
+            discovery_source="catalog",
         )

@@ -9,6 +9,8 @@ from typing import Any, Callable
 
 import structlog
 
+from aios.core.adapters.base import sanitize_error
+
 logger = structlog.get_logger(__name__)
 
 
@@ -87,7 +89,7 @@ class ModelCache:
                 )
             return result
         except Exception as e:
-            logger.warning("cache.fetch_failed", key=key, error=str(e))
+            logger.warning("cache.fetch_failed", key=key, error=sanitize_error(str(e)[:200]))
             if entry and entry.is_stale and (time.monotonic() - entry.fetched_at) < self._stale_ttl:
                 logger.info("cache.serving_stale", key=key)
                 return entry.data
@@ -149,7 +151,7 @@ class ModelCache:
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
-                    logger.warning("cache.background_refresh_failed", key=key, error=str(e))
+                    logger.warning("cache.background_refresh_failed", key=key, error=sanitize_error(str(e)[:200]))
 
         task = asyncio.create_task(_refresh_loop())
         self._background_tasks[key] = task

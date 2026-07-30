@@ -6,6 +6,7 @@ from aios.conversation.manager import ConversationManager
 from aios.conversation.models import Conversation, Message
 from aios.conversation.interfaces import IConversationService
 from aios.conversation.exceptions import ConversationNotFoundError, AIProviderError
+from aios.core.adapters.base import sanitize_error
 from aios.utils.logger import get_logger
 from aios.utils.tracer import trace_async_gen
 
@@ -85,9 +86,10 @@ class ConversationService(IConversationService):
         conversation_id: str,
         provider_id: str | None = None,
         model_id: str | None = None,
+        routing_policy: str | None = None,
     ) -> Conversation:
         try:
-            return await self._manager.set_provider_model(conversation_id, provider_id, model_id)
+            return await self._manager.set_provider_model(conversation_id, provider_id, model_id, routing_policy=routing_policy)
         except ConversationNotFoundError:
             raise
         except Exception as e:
@@ -103,7 +105,7 @@ class ConversationService(IConversationService):
             yield {"type": "error", "data": {"error": "Conversation not found", "recoverable": False}}
         except Exception as e:
             logger.error("service.stream_message_failed", error=str(e))
-            yield {"type": "error", "data": {"error": str(e), "recoverable": True}}
+            yield {"type": "error", "data": {"error": sanitize_error(str(e)), "recoverable": True}}
 
     async def get_history(self, conversation_id: str, limit: int = 100, offset: int = 0) -> list[Message]:
         return await self._manager.get_history(conversation_id, limit, offset)

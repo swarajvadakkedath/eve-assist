@@ -9,8 +9,8 @@ import httpx
 import structlog
 from openai import AsyncOpenAI
 
-from aios.core.adapters.base import AIProviderAdapter, ChatRequest, ChatResponse, ProviderStatus
-from aios.core.model_info import ModelInfo
+from aios.core.adapters.base import AIProviderAdapter, ChatRequest, ChatResponse, ProviderStatus, sanitize_error
+from aios.core.model_info import ModelInfo, CommercialStatus, AvailabilityStatus
 from aios.core.streaming_manager import StreamingManager
 from aios.core.timeout_retry import (
     TimeoutConfig,
@@ -100,17 +100,21 @@ class OpenAIAdapter(AIProviderAdapter):
                     display_name=m.id,
                     provider_id="openai",
                     provider_name="OpenAI",
+                    provider_type="openai",
                     context_window=128000,
                     max_output_tokens=16384,
                     supports_streaming=True,
                     supports_tools=True,
                     supports_json=True,
                     supports_function_calling=True,
+                    commercial_status=CommercialStatus.PAID,
+                    availability=AvailabilityStatus.AVAILABLE,
+                    discovery_source="api",
                     metadata={"owned_by": m.owned_by if hasattr(m, "owned_by") else ""},
                 ))
             return models
         except Exception as e:
-            logger.error("openai.list_models.failed", error=str(e))
+            logger.error("openai.list_models.failed", error=sanitize_error(str(e)[:200]))
             return []
 
     async def get_model(self, model_id: str) -> ModelInfo | None:

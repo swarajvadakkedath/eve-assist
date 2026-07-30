@@ -146,6 +146,21 @@ MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
         {"id": "deepseek-r1", "displayName": "DeepSeek R1", "contextLength": 131072, "maxOutput": 16384, "supportsReasoning": True, "isFree": True, "speed": 4, "quality": 8},
     ],
     "lm_studio": [],
+    "cohere": [
+        {"id": "command-a-plus-05-2026", "displayName": "Command A Plus", "contextLength": 200000, "maxOutput": 4096, "supportsVision": True, "supportsFunctionCalling": True, "supportsJSON": True, "isFree": False, "recommended": True, "speed": 7, "quality": 9, "costPer1kInput": 0.00250, "costPer1kOutput": 0.01000},
+        {"id": "command-a-05-2026", "displayName": "Command A", "contextLength": 200000, "maxOutput": 4096, "supportsVision": True, "supportsFunctionCalling": True, "supportsJSON": True, "isFree": False, "speed": 8, "quality": 8, "costPer1kInput": 0.00250, "costPer1kOutput": 0.01000},
+        {"id": "command-r-plus-08-2024", "displayName": "Command R Plus", "contextLength": 128000, "maxOutput": 4096, "supportsFunctionCalling": True, "supportsJSON": True, "isFree": False, "speed": 7, "quality": 8, "costPer1kInput": 0.00250, "costPer1kOutput": 0.01000},
+        {"id": "command-r-08-2024", "displayName": "Command R", "contextLength": 128000, "maxOutput": 4096, "supportsFunctionCalling": True, "supportsJSON": True, "isFree": False, "speed": 8, "quality": 7, "costPer1kInput": 0.00015, "costPer1kOutput": 0.00060},
+    ],
+    "cloudflare": [
+        {"id": "@cf/meta/llama-3.3-70b-instruct-fp16", "displayName": "Llama 3.3 70B", "contextLength": 131072, "maxOutput": 4096, "supportsFunctionCalling": True, "supportsJSON": True, "isFree": True, "recommended": True, "speed": 7, "quality": 8},
+        {"id": "@cf/meta/llama-3.1-8b-instruct", "displayName": "Llama 3.1 8B", "contextLength": 131072, "maxOutput": 4096, "supportsFunctionCalling": True, "isFree": True, "speed": 9, "quality": 6},
+        {"id": "@cf/meta/llama-3.2-3b-instruct", "displayName": "Llama 3.2 3B", "contextLength": 131072, "maxOutput": 4096, "isFree": True, "speed": 10, "quality": 5},
+    ],
+    "nvidia": [
+        {"id": "meta/llama-3.3-70b-instruct", "displayName": "Llama 3.3 70B", "contextLength": 131072, "maxOutput": 4096, "supportsFunctionCalling": True, "supportsJSON": True, "isFree": True, "recommended": True, "speed": 7, "quality": 8},
+        {"id": "nvidia/llama-3.1-nemotron-70b-instruct", "displayName": "Nemotron 70B", "contextLength": 131072, "maxOutput": 4096, "supportsFunctionCalling": True, "supportsJSON": True, "isFree": True, "speed": 7, "quality": 8},
+    ],
     "openai_compatible": [],
     "custom": [],
 }
