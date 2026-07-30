@@ -19,7 +19,8 @@ def sanitize_error(text: str) -> str:
     """Redact API keys, tokens, and secrets from error strings.
 
     Covers: OpenAI (sk-*), Anthropic (sk-ant-*), Google (AIza*),
-    Groq (gsk_*), Bearer tokens, and generic api_key patterns.
+    Groq (gsk_*), Bearer tokens, generic api_key patterns,
+    and URL-embedded credentials (user:password@host).
     """
     patterns = [
         # OpenAI / generic sk- prefix keys
@@ -36,6 +37,8 @@ def sanitize_error(text: str) -> str:
         (r'(x-api-key["\s:=]+)[a-zA-Z0-9_\-]{8,}', r'\1***REDACTED***'),
         # api_key / api-key / apikey with value
         (r'(api[_-]?key["\s:=]+)[a-zA-Z0-9_\-]{8,}', r'\1***REDACTED***'),
+        # URL-embedded credentials: scheme://user:password@host
+        (r'://([^/\s]+):([^/\s]+)@', r'://[REDACTED]@'),
     ]
     result = text
     for pattern, replacement in patterns:

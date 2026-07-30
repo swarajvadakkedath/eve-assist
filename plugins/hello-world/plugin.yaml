@@ -1,7 +1,7 @@
 id: hello-world
 name: Hello World
 version: 1.0.0
-sdk_version: 1.1.0-rc.1
+sdk_version: 1.1.0-rc.2
 author: AIOS SDK
 description: A minimal AIOS plugin example demonstrating the Plugin SDK
 license: MIT

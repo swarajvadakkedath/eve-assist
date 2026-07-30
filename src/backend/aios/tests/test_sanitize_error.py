@@ -162,16 +162,13 @@ class TestSanitizeCombinations:
         assert "REDACTED" in result
 
     def test_url_with_credentials(self):
-        """KNOWN LIMITATION: URL-embedded credentials (user:pass@host) are NOT redacted
-        by current sanitize_error patterns. This is acceptable because:
-        1. Provider SDKs do not typically include credentials in URL error messages
-        2. The primary attack surface is API key patterns (sk-*, AIza*, gsk_*, Bearer)
-        3. URL credentials would require a separate URL parsing regex
+        """URL-embedded credentials (user:pass@host) ARE redacted since RC2.
+        Pattern: ://user:pass@host -> //[REDACTED]@host
         """
         text = "Failed to connect: https://user:SECRET123@api.example.com/v1/models"
         result = sanitize_error(text)
-        # Document the limitation: URL credentials pass through
-        assert "SECRET123" in result  # Known gap - not redacted
+        assert "SECRET123" not in result  # FIXED in RC2 - now redacted
+        assert "REDACTED" in result
 
 
 class TestSanitizeSafeMetadata:

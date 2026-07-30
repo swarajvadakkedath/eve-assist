@@ -19,7 +19,7 @@ from pathlib import Path
 
 import httpx
 
-LAUNCHER_VERSION = "1.1.0-rc.1"
+LAUNCHER_VERSION = "1.1.0-rc.2"
 BACKEND_DIR = Path(__file__).resolve().parent
 BACKEND_PKG_DIR = BACKEND_DIR.parent
 PROJECT_ROOT = BACKEND_PKG_DIR.parent.parent

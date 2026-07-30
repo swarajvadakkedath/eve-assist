@@ -11,6 +11,7 @@ from aios.utils.tracer import trace_async, trace_async_gen
 from aios.conversation.models import Conversation, Message, StreamEventType
 from aios.conversation.exceptions import ConversationNotFoundError, AIProviderError
 from aios.conversation.formatter import format_conversation_response, format_message_response, format_message_list
+from aios.core.adapters.base import sanitize_error
 
 logger = structlog.get_logger(__name__)
 
@@ -125,7 +126,7 @@ async def send_message(req: Request, body: MessageRequest):
     except ConversationNotFoundError as e:
         return {"error": str(e)}, 404
     except AIProviderError as e:
-        return {"error": str(e)}, 503
+        return {"error": sanitize_error(str(e))}, 503
 
 
 @router.post("/chat/stream")
