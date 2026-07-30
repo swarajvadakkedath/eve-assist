@@ -69,8 +69,16 @@ async def test_memory_system():
     print(f"Search 'Orion' after forget: {len(results)} results")
     
     print("\n--- Phase 13: Sensitive Information ---")
-    await memory.store(Memory(type=MemoryType.FACT, content="My API key is sk-1234567890abcdef", source="test", importance=0.5))
-    await memory.store(Memory(type=MemoryType.FACT, content="Password: MySecretPass123!", source="test", importance=0.5))
+    try:
+        await memory.store(Memory(type=MemoryType.FACT, content="My API key is sk-1234567890abcdef", source="test", importance=0.5))
+        print("FAIL: Should have blocked sensitive data")
+    except ValueError as e:
+        print(f"PASS: Blocked sensitive data: {e}")
+    try:
+        await memory.store(Memory(type=MemoryType.FACT, content="Password: MySecretPass123!", source="test", importance=0.5))
+        print("FAIL: Should have blocked sensitive data")
+    except ValueError as e:
+        print(f"PASS: Blocked sensitive data: {e}")
     
     results = await memory.search("API key")
     print(f"Search 'API key': {len(results)} results")
@@ -80,7 +88,7 @@ async def test_memory_system():
     print("\n--- Phase 17: Performance ---")
     start = time.monotonic()
     for i in range(100):
-        await memory.store(Memory(type=MemoryType.FACT, content=f"Test memory number {i}", source="test", importance=0.5))
+        await memory.store(Memory(type=MemoryType.FACT, content=f"Test memory number {i}", source="test", importance=0.5), force=True)
     elapsed = (time.monotonic() - start) * 1000
     print(f"100 writes: {elapsed:.1f}ms ({elapsed/100:.2f}ms per write)")
     
