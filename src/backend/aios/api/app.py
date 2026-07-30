@@ -260,6 +260,7 @@ async def lifespan(app: FastAPI):
     app.state.vision_event_publisher = vision_event_publisher
     import aios.api.vision as vision_api
     vision_api.vision_session = vision_session
+    vision_api.vision_pipeline = vision_pipeline
 
     app.state.debug_console = debug_console
     app.state.health_dashboard = health_dashboard

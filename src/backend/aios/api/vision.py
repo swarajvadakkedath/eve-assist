@@ -13,6 +13,7 @@ from aios.core.adapters.base import sanitize_error
 router = APIRouter(prefix="/api/v1/vision", tags=["vision"])
 
 vision_session: VisionSession | None = None
+vision_pipeline = None  # VisionPipeline — set by app.py at startup
 
 
 def _get_session() -> VisionSession:
@@ -25,6 +26,13 @@ class CaptureRequest(BaseModel):
     target: str = "full_screen"
     monitor_id: int = 0
     region: list[int] | None = None
+
+
+class AnalyzeRequest(BaseModel):
+    target: str = "full_screen"
+    monitor_id: int = 0
+    region: list[int] | None = None
+    conversation_id: str | None = None
 
 
 class ConfigUpdate(BaseModel):
@@ -62,7 +70,33 @@ async def capture(req: CaptureRequest):
 
 
 @router.post("/analyze")
-async def analyze(req: CaptureRequest):
+async def analyze(req: AnalyzeRequest):
+    if vision_pipeline and vision_session:
+        try:
+            observation = await vision_pipeline.observe_screen(
+                session_id=vision_session.state.session_id or "",
+                conversation_id=req.conversation_id,
+            )
+            return {
+                "summary": observation.summary,
+                "ocr_text": observation.ocr.text if observation.ocr else "",
+                "ocr_confidence": observation.ocr.confidence if observation.ocr else 0,
+                "ui_elements": [
+                    {"type": e.type, "text": e.text, "x": e.x, "y": e.y, "w": e.width, "h": e.height}
+                    for e in (observation.detection.elements if observation.detection else [])
+                ],
+                "layout": [
+                    {"type": r.region_type, "x": r.x, "y": r.y, "w": r.width, "h": r.height, "label": r.label}
+                    for r in (observation.detection.layout if observation.detection else [])
+                ],
+                "element_count": len(observation.detection.elements) if observation.detection else 0,
+                "duration_ms": observation.detection.duration_ms if observation.detection else 0,
+                "observation_id": observation.id,
+                "fed_to_conversation": bool(req.conversation_id),
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=sanitize_error(str(e)))
+    # Fallback: session-only analysis (no conversation feed)
     session = _get_session()
     try:
         observation = await session.analyze_current_screen()
@@ -81,13 +115,36 @@ async def analyze(req: CaptureRequest):
             "element_count": len(observation.detection.elements) if observation.detection else 0,
             "duration_ms": observation.detection.duration_ms if observation.detection else 0,
             "observation_id": observation.id,
+            "fed_to_conversation": False,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=sanitize_error(str(e)))
 
 
 @router.post("/analyze-upload")
-async def analyze_upload(file: UploadFile = File(...)):
+async def analyze_upload(file: UploadFile = File(...), conversation_id: str | None = None):
+    if vision_pipeline and vision_session:
+        try:
+            contents = await file.read()
+            observation = await vision_pipeline.observe_image(
+                session_id=vision_session.state.session_id or "",
+                image_data=contents,
+                conversation_id=conversation_id,
+            )
+            return {
+                "summary": observation.summary,
+                "ocr_text": observation.ocr.text if observation.ocr else "",
+                "ui_elements": [
+                    {"type": e.type, "text": e.text, "x": e.x, "y": e.y, "w": e.width, "h": e.height}
+                    for e in (observation.detection.elements if observation.detection else [])
+                ],
+                "element_count": len(observation.detection.elements) if observation.detection else 0,
+                "observation_id": observation.id,
+                "fed_to_conversation": bool(conversation_id),
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=sanitize_error(str(e)))
+    # Fallback: session-only analysis
     session = _get_session()
     try:
         contents = await file.read()
@@ -101,6 +158,7 @@ async def analyze_upload(file: UploadFile = File(...)):
             ],
             "element_count": len(observation.detection.elements) if observation.detection else 0,
             "observation_id": observation.id,
+            "fed_to_conversation": False,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=sanitize_error(str(e)))

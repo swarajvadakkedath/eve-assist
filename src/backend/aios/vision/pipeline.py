@@ -21,7 +21,7 @@ class VisionPipeline:
         self.event_publisher = event_publisher or VisionEventPublisher()
         self.config = config or VisionConfig()
 
-    async def observe_screen(self, session_id: str) -> VisionObservation:
+    async def observe_screen(self, session_id: str, conversation_id: str | None = None) -> VisionObservation:
         await self.event_publisher.publish_capture_start()
         await self.event_publisher.publish_analysis_start()
         observation = await self.session.analyze_current_screen()
@@ -30,10 +30,10 @@ class VisionPipeline:
             element_count=len(observation.detection.elements) if observation.detection else 0,
         )
         await self.event_publisher.publish_observation(observation.to_dict())
-        await self._feed_to_conversation(observation)
+        await self._feed_to_conversation(observation, conversation_id)
         return observation
 
-    async def observe_image(self, session_id: str, image_data: bytes) -> VisionObservation:
+    async def observe_image(self, session_id: str, image_data: bytes, conversation_id: str | None = None) -> VisionObservation:
         await self.event_publisher.publish_analysis_start(source="upload")
         observation = await self.session.analyze_uploaded_image(image_data)
         await self.event_publisher.publish_analysis_complete(
@@ -41,14 +41,15 @@ class VisionPipeline:
             element_count=len(observation.detection.elements) if observation.detection else 0,
         )
         await self.event_publisher.publish_observation(observation.to_dict())
-        await self._feed_to_conversation(observation)
+        await self._feed_to_conversation(observation, conversation_id)
         return observation
 
-    async def _feed_to_conversation(self, observation: VisionObservation):
-        if not self.conversation_manager:
+    async def _feed_to_conversation(self, observation: VisionObservation, conversation_id: str | None = None):
+        """Feed structured observation into the conversation as untrusted context."""
+        if not self.conversation_manager or not conversation_id:
             return
         structured = observation.to_structured()
-        await self.conversation_manager.add_system_message(
-            content=f"[Vision Observation] {observation.summary}",
-            metadata={"vision_observation": structured},
+        await self.conversation_manager.add_vision_observation(
+            conversation_id=conversation_id,
+            observation=structured,
         )
