@@ -1,3 +1,3 @@
 """Eve OS Launcher — desktop application entry point."""
 
-LAUNCHER_VERSION = "1.0.0"
+LAUNCHER_VERSION = "1.1.0-rc.1"
