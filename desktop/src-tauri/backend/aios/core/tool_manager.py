@@ -97,7 +97,7 @@ def _contract_to_capability(contract: ToolContract) -> Capability:
         returns=contract.returns,
         permission_level=int(contract.permission_level),
         tags=contract.tags,
-        version="1.1.0-rc.2",
+        version="1.1.0",
         quality=1.0,
         requires_confirmation=contract.requires_confirmation,
         supported_interfaces=["chat"],
