@@ -302,7 +302,8 @@ class TestStrictRouting:
         req = make_request(provider_id="google-a", model="gemini-2.5-flash")
 
         with pytest.raises(ProviderUnavailableError):
-            async for _ in router.route_stream(req, routing_policy=RoutingPolicy.STRICT):
+            result = await router.route_stream(req, routing_policy=RoutingPolicy.STRICT)
+            async for _ in result.tokens:
                 pass
 
 
@@ -732,7 +733,8 @@ class TestStreamingFailure:
         req = make_request()
         tokens = []
         with pytest.raises(RuntimeError):
-            async for token in router.route_stream(req, routing_policy=RoutingPolicy.AUTO):
+            result = await router.route_stream(req, routing_policy=RoutingPolicy.AUTO)
+            async for token in result.tokens:
                 tokens.append(token)
 
     @pytest.mark.asyncio
@@ -754,7 +756,8 @@ class TestStreamingFailure:
         req = make_request()
         tokens = []
         with pytest.raises(RuntimeError):
-            async for token in router.route_stream(req, routing_policy=RoutingPolicy.AUTO):
+            result = await router.route_stream(req, routing_policy=RoutingPolicy.AUTO)
+            async for token in result.tokens:
                 tokens.append(token)
 
         # Should NOT have tokens from google-b
@@ -1184,7 +1187,8 @@ class TestCredentialLeakageRegression:
         req = make_request(provider_id="google-a", model="gemini-2.5-flash")
 
         with pytest.raises(RouteError) as exc_info:
-            async for _ in router.route_stream(req, routing_policy=RoutingPolicy.STRICT):
+            result = await router.route_stream(req, routing_policy=RoutingPolicy.STRICT)
+            async for _ in result.tokens:
                 pass
 
         err_dict = exc_info.value.to_dict()
@@ -1391,7 +1395,8 @@ class TestStreamingTraceAttachment:
 
         req = make_request(provider_id="google-a", model="gemini-2.5-flash")
         tokens = []
-        async for token in router.route_stream(req, routing_policy=RoutingPolicy.STRICT):
+        result = await router.route_stream(req, routing_policy=RoutingPolicy.STRICT)
+        async for token in result.tokens:
             tokens.append(token)
 
         assert len(tokens) == 10
@@ -1405,7 +1410,8 @@ class TestStreamingTraceAttachment:
 
         tokens = []
         with pytest.raises(RouteError):
-            async for token in router.route_stream(req, routing_policy=RoutingPolicy.STRICT):
+            result = await router.route_stream(req, routing_policy=RoutingPolicy.STRICT)
+            async for token in result.tokens:
                 tokens.append(token)
 
         assert len(tokens) == 0

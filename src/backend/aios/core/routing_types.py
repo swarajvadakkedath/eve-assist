@@ -301,8 +301,14 @@ class RouteCandidate:
 
 @dataclass
 class RoutingTrace:
-    """Sanitized routing trace for debugging. Never contains credentials."""
+    """Sanitized routing trace for debugging. Never contains credentials.
 
+    Each trace is request-scoped: created per route/route_stream call and never
+    stored on shared singleton state. The ``request_id`` field ensures traces
+    can be correlated across the request lifecycle without risk of crossover.
+    """
+
+    request_id: str = ""
     policy: str = ""
     required_capabilities: list[str] = field(default_factory=list)
     preferred_provider_id: str | None = None
@@ -323,6 +329,7 @@ class RoutingTrace:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "request_id": self.request_id,
             "policy": self.policy,
             "required_capabilities": self.required_capabilities,
             "preferred_provider_id": self.preferred_provider_id,

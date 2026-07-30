@@ -10,6 +10,7 @@ from aios.conversation.formatter import (
     create_status_event,
 )
 from aios.conversation.exceptions import StreamError
+from aios.core.adapters.base import sanitize_error
 from aios.utils.logger import get_logger
 from aios.utils.tracer import trace_async_gen
 
@@ -59,7 +60,7 @@ class StreamManager:
                         yield create_status_event("retrying", f"Retrying... (attempt {retries}/{max_retries})")
                         await asyncio.sleep(retries * 0.5)
                     else:
-                        yield create_error_event(str(e), recoverable=False)
+                        yield create_error_event(sanitize_error(str(e)), recoverable=False)
                         return
         finally:
             self._cancelled.pop(stream_id, None)

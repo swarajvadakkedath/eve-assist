@@ -145,7 +145,8 @@ class TestRoutingPolicyProviderUnavailableStrict:
         req = make_request(provider_id="google-abc", model="gemini-2.5-flash")
 
         with pytest.raises(ProviderUnavailableError) as exc_info:
-            async for _ in router.route_stream(req, routing_policy=RoutingPolicy.STRICT):
+            result = await router.route_stream(req, routing_policy=RoutingPolicy.STRICT)
+            async for _ in result.tokens:
                 pass
 
         assert exc_info.value.error_type == "PROVIDER_UNAVAILABLE"
@@ -185,7 +186,8 @@ class TestRoutingPolicyModelUnavailableStrict:
         req = make_request(provider_id="google-abc", model="gemini-2.5-pro")
 
         with pytest.raises(ModelUnavailableError) as exc_info:
-            async for _ in router.route_stream(req, routing_policy=RoutingPolicy.STRICT):
+            result = await router.route_stream(req, routing_policy=RoutingPolicy.STRICT)
+            async for _ in result.tokens:
                 pass
 
         assert exc_info.value.error_type == "MODEL_UNAVAILABLE"
@@ -250,7 +252,8 @@ class TestRoutingPolicyStreaming:
         req = make_request(provider_id="google-abc", model="gemini-2.5-flash")
 
         with pytest.raises(ProviderUnavailableError):
-            async for _ in router.route_stream(req, routing_policy=RoutingPolicy.STRICT):
+            result = await router.route_stream(req, routing_policy=RoutingPolicy.STRICT)
+            async for _ in result.tokens:
                 pass
 
     @pytest.mark.asyncio
@@ -263,7 +266,8 @@ class TestRoutingPolicyStreaming:
         req = make_request(provider_id="google-abc", model="gemini-2.5-pro")
 
         with pytest.raises(ModelUnavailableError):
-            async for _ in router.route_stream(req, routing_policy=RoutingPolicy.STRICT):
+            result = await router.route_stream(req, routing_policy=RoutingPolicy.STRICT)
+            async for _ in result.tokens:
                 pass
 
 

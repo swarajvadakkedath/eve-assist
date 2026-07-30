@@ -715,7 +715,7 @@ class ProviderManager:
                 results.append({
                     "provider_id": p["id"],
                     "success": False,
-                    "error": str(e) or "Connection test timed out",
+                    "error": sanitize_error(str(e)) or "Connection test timed out",
                     "status": "offline",
                 })
         return results

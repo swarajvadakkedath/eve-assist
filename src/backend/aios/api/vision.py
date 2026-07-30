@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from aios.vision.session import VisionSession
 from aios.vision.models import VisionConfig, VisionProvider, OCREngine, ObservationMode, CaptureTarget
+from aios.core.adapters.base import sanitize_error
 
 router = APIRouter(prefix="/api/v1/vision", tags=["vision"])
 
@@ -57,7 +58,7 @@ async def capture(req: CaptureRequest):
             "size_bytes": len(result.image_data),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=sanitize_error(str(e)))
 
 
 @router.post("/analyze")
@@ -82,7 +83,7 @@ async def analyze(req: CaptureRequest):
             "observation_id": observation.id,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=sanitize_error(str(e)))
 
 
 @router.post("/analyze-upload")
@@ -102,7 +103,7 @@ async def analyze_upload(file: UploadFile = File(...)):
             "observation_id": observation.id,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=sanitize_error(str(e)))
 
 
 @router.get("/observation/latest")

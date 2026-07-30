@@ -594,9 +594,10 @@ class ConversationManager(IConversationService):
                 policy = RoutingPolicy(conv.routing_policy)
             else:
                 policy = RoutingPolicy.STRICT if conv.provider_id else RoutingPolicy.AUTO
-            token_gen = self._ai_router.route_stream(req, routing_policy=policy)
+            stream_result = await self._ai_router.route_stream(req, routing_policy=policy)
+            routing_trace = stream_result.trace.to_dict()
 
-            async for event in self._stream_manager.stream(uuid4().hex, token_gen, done_metadata={"routing_trace": self._ai_router.last_routing_trace}):
+            async for event in self._stream_manager.stream(stream_result.request_id, stream_result.tokens, done_metadata={"routing_trace": routing_trace}):
                 if event["type"] == StreamEventType.ERROR.value:
                     had_error = True
                 if event["type"] == StreamEventType.TOKEN.value:
@@ -613,7 +614,7 @@ class ConversationManager(IConversationService):
             logger.error("stream.failed", error=str(e))
             yield create_error_event(sanitize_error(str(e)), recoverable=True)
             had_error = True
-            full_content = full_content or f"I encountered an error: {e}"
+            full_content = full_content or f"I encountered an error: {sanitize_error(str(e))}"
 
         latency_ms = (time.monotonic() - start_time) * 1000
 

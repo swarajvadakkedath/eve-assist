@@ -18,6 +18,7 @@ Commercial policies:
 from __future__ import annotations
 
 import time
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, AsyncIterator
@@ -486,7 +487,6 @@ class SmartRouter:
         self._strategy = strategy
         self._commercial_policy = commercial_policy
         self._health_monitor = health_monitor or HealthMonitor()
-        self._last_routing_trace: dict[str, Any] | None = None
 
     @property
     def adapters(self) -> dict[str, AIProviderAdapter]:
@@ -499,10 +499,6 @@ class SmartRouter:
     @commercial_policy.setter
     def commercial_policy(self, policy: CommercialPolicy):
         self._commercial_policy = policy
-
-    @property
-    def last_routing_trace(self) -> dict[str, Any] | None:
-        return self._last_routing_trace
 
     # -- Adapter management -------------------------------------------------
 
@@ -585,17 +581,30 @@ class SmartRouter:
         category: str = "general_chat",
         routing_policy: RoutingPolicy = RoutingPolicy.AUTO,
         commercial_policy: CommercialPolicy | None = None,
-    ) -> AsyncIterator[str]:
-        """Route a streaming request. Yields tokens."""
+    ) -> RouteStreamResult:
+        """Route a streaming request. Returns RouteStreamResult with tokens + trace.
+
+        The trace is request-scoped: returned to the caller directly rather
+        than stored on shared singleton state. This prevents trace corruption
+        when multiple streams execute concurrently.
+        """
         req = self._to_chat_request(request)
         result = await self._resolve_route(req, category, routing_policy, commercial_policy, streaming=True)
-        self._last_routing_trace = result.trace.to_dict()
-        try:
-            async for token in result.candidate.adapter.stream(result.request):
-                yield token
-        except Exception:
-            # Post-token failure: do NOT attempt failover (avoid duplicate answers)
-            raise
+        request_id = result.trace.request_id
+
+        async def _token_generator():
+            try:
+                async for token in result.candidate.adapter.stream(result.request):
+                    yield token
+            except Exception:
+                # Post-token failure: do NOT attempt failover (avoid duplicate answers)
+                raise
+
+        return RouteStreamResult(
+            tokens=_token_generator(),
+            trace=result.trace,
+            request_id=request_id,
+        )
 
     # -- Core routing: resolve_route() --------------------------------------
 
@@ -610,7 +619,9 @@ class SmartRouter:
         """Shared candidate selection for both route() and route_stream()."""
         cp = commercial_policy or self._commercial_policy
         required_caps = required_capabilities_from_category(category)
+        request_id = uuid.uuid4().hex
         trace = RoutingTrace(
+            request_id=request_id,
             policy=routing_policy.value,
             required_capabilities=required_caps,
             commercial_policy=cp.value,
@@ -1143,6 +1154,19 @@ class SmartRouter:
 # ---------------------------------------------------------------------------
 # Internal resolution result
 # ---------------------------------------------------------------------------
+
+@dataclass
+class RouteStreamResult:
+    """Request-scoped result from route_stream().
+
+    Holds both the token generator AND the routing trace so that callers
+    receive the trace directly instead of reading from shared singleton state.
+    This prevents trace corruption under concurrent streaming requests.
+    """
+    tokens: AsyncIterator[str]
+    trace: RoutingTrace
+    request_id: str
+
 
 @dataclass
 class _RouteResolution:
