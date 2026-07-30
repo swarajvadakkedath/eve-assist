@@ -94,7 +94,9 @@ async def lifespan(app: FastAPI):
     smart_router = SmartRouter()
     provider_manager = ProviderManager(smart_router=smart_router)
     provider_manager.register_all_adapters()
-    memory = MemorySystem(event_bus=event_bus)
+    import os
+    memory_persistence_path = os.path.join(os.path.expanduser("~"), ".eve", "memory.json")
+    memory = MemorySystem(event_bus=event_bus, persistence_path=memory_persistence_path)
     planner = Planner(capability_registry=capability_registry)
     from aios.core.windows.adapter import WindowsAdapter
     windows_adapter = WindowsAdapter(
