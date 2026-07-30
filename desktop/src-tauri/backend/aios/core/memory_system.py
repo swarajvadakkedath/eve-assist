@@ -51,6 +51,23 @@ MEMORY_CANDIDATE_KEYWORDS = [
     "project uses", "project has", "we use", "we have",
 ]
 
+INJECTION_PATTERNS = [
+    r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions",
+    r"system\s*message\s*:",
+    r"disable\s+(permission|security|safety)",
+    r"execute\s+(powershell|cmd|shell|command)\s+immediately",
+    r"always\s+(approve|accept|allow)\s+destructive",
+    r"when\s+recalled\s*,?\s*execute",
+    r"bypass\s+(permission|security|safety)",
+    r"override\s+(permission|security|safety)",
+]
+
+
+class MemoryScope:
+    GLOBAL = "global"
+    PROJECT = "project"
+    SESSION = "session"
+
 
 class MemoryType:
     FACT = "fact"
@@ -74,7 +91,9 @@ class Memory:
     created_at: datetime | None = None
     accessed_at: datetime | None = None
     access_count: int = 0
+    scope: str = MemoryScope.GLOBAL
     project_id: str = ""
+    session_id: str = ""
 
     def __post_init__(self):
         if not self.id:
@@ -86,6 +105,7 @@ class Memory:
 
     @classmethod
     def from_node(cls, node: MemoryNode) -> "Memory":
+        meta = node.metadata or {}
         return cls(
             id=node.id.value,
             type=node.type,
@@ -95,21 +115,37 @@ class Memory:
             access_count=node.accessCount,
             created_at=datetime.fromtimestamp(node.createdAt / 1000) if node.createdAt else None,
             accessed_at=datetime.fromtimestamp(node.lastAccessed / 1000) if node.lastAccessed else None,
-            project_id=node.metadata.get("project_id", "") if node.metadata else "",
+            scope=meta.get("scope", MemoryScope.GLOBAL),
+            project_id=meta.get("project_id", ""),
+            session_id=meta.get("session_id", ""),
         )
 
 
 class MemorySystem:
     def __init__(self, event_bus: EventBus | None = None, persistence_path: str | None = None):
         self._store = get_memory_store(event_bus=event_bus)
-        self._short_term: dict[str, ShortTermMemory] = {}
         self._conversations: dict[str, list[dict]] = {}
         self._persistence_path = persistence_path
         self._dirty = False
+        self._active_project_id: str = ""
+        self._active_session_id: str = ""
+
+    def set_project(self, project_id: str) -> None:
+        self._active_project_id = project_id
+
+    def set_session(self, session_id: str) -> None:
+        self._active_session_id = session_id
 
     def _is_sensitive(self, content: str) -> bool:
         content_lower = content.lower()
         for pattern in SENSITIVE_PATTERNS:
+            if re.search(pattern, content_lower):
+                return True
+        return False
+
+    def _is_injection(self, content: str) -> bool:
+        content_lower = content.lower()
+        for pattern in INJECTION_PATTERNS:
             if re.search(pattern, content_lower):
                 return True
         return False
@@ -122,19 +158,33 @@ class MemorySystem:
             return False
         return False
 
-    def _find_similar(self, content: str, memory_type: str) -> Memory | None:
+    def _find_similar(self, content: str, memory_type: str, scope: str, project_id: str) -> Memory | None:
         for node in self._store.graph.get_all_nodes():
             if node.type == memory_type:
+                meta = node.metadata or {}
+                node_scope = meta.get("scope", MemoryScope.GLOBAL)
+                node_project = meta.get("project_id", "")
+                if node_scope != scope:
+                    continue
+                if scope == MemoryScope.PROJECT and node_project != project_id:
+                    continue
                 existing = node.summary or node.title
                 if existing and content.lower() in existing.lower():
                     return Memory.from_node(node)
         return None
 
-    def _find_conflict(self, content: str, memory_type: str) -> Memory | None:
+    def _find_conflict(self, content: str, memory_type: str, scope: str, project_id: str) -> Memory | None:
         if memory_type != MemoryType.PREFERENCE:
             return None
         for node in self._store.graph.get_all_nodes():
             if node.type == MemoryType.PREFERENCE:
+                meta = node.metadata or {}
+                node_scope = meta.get("scope", MemoryScope.GLOBAL)
+                node_project = meta.get("project_id", "")
+                if node_scope != scope:
+                    continue
+                if scope == MemoryScope.PROJECT and node_project != project_id:
+                    continue
                 existing = node.summary or node.title
                 if existing:
                     existing_key = existing.split(" is ")[-1].split(" are ")[-1].strip().lower()
@@ -144,21 +194,41 @@ class MemorySystem:
                             return Memory.from_node(node)
         return None
 
+    def _scope_key(self, scope: str, project_id: str, session_id: str) -> str:
+        if scope == MemoryScope.PROJECT:
+            return f"project:{project_id}"
+        if scope == MemoryScope.SESSION:
+            return f"session:{session_id}"
+        return "global"
+
     async def store(self, memory: Memory, force: bool = False) -> str:
         if not force and self._is_sensitive(memory.content):
             logger.warning("memory blocked: sensitive content", content_preview=memory.content[:50])
             raise ValueError("Cannot store memory containing sensitive information")
 
+        if not force and self._is_injection(memory.content):
+            logger.warning("memory blocked: injection attempt", content_preview=memory.content[:50])
+            raise ValueError("Cannot store memory containing injection patterns")
+
         if not force and not self._is_candidate(memory.content) and memory.importance < 0.7:
             logger.debug("memory skipped: not a candidate", content_preview=memory.content[:50])
             raise ValueError("Content is not a memory candidate")
 
-        existing = self._find_similar(memory.content, memory.type)
+        scope = memory.scope
+        project_id = memory.project_id or self._active_project_id
+        session_id = memory.session_id or self._active_session_id
+
+        if scope == MemoryScope.PROJECT and not project_id:
+            scope = MemoryScope.GLOBAL
+        if scope == MemoryScope.SESSION and not session_id:
+            scope = MemoryScope.GLOBAL
+
+        existing = self._find_similar(memory.content, memory.type, scope, project_id)
         if existing:
-            logger.info("memory deduplicated", existing_id=existing.id)
+            logger.info("memory deduplicated", existing_id=existing.id, scope=scope)
             return existing.id
 
-        conflict = self._find_conflict(memory.content, memory.type)
+        conflict = self._find_conflict(memory.content, memory.type, scope, project_id)
         if conflict:
             logger.info("memory conflict resolved", old_id=conflict.id, new_content=memory.content[:50])
             self._store.delete_node(NodeId(value=conflict.id, type=conflict.type))
@@ -170,26 +240,52 @@ class MemorySystem:
             summary=memory.content,
             source=memory.source,
             importance=memory.importance or 1.0,
-            tags=[memory.type],
+            tags=[memory.type, scope],
             metadata={
                 "embedding": memory.embedding,
                 "conversation_id": memory.conversation_id,
                 "conversation_ids": memory.conversation_ids,
-                "project_id": memory.project_id,
+                "scope": scope,
+                "project_id": project_id,
+                "session_id": session_id,
             },
         )
         node, errors = self._store.create_node(node_input)
         if errors:
             raise ValueError(f"Failed to store memory: {[str(e) for e in errors]}")
         self._dirty = True
+        logger.info("memory stored", node_id=node.id.value, scope=scope, project_id=project_id)
         return node.id.value
 
-    async def search(self, query: str, limit: int = 10, project_id: str | None = None) -> list[Memory]:
-        result = self._store.search_by_keyword(query, QueryOptions(limit=limit * 2))
+    async def search(self, query: str, limit: int = 10, scope: str | None = None, project_id: str | None = None) -> list[Memory]:
+        result = self._store.search_by_keyword(query, QueryOptions(limit=limit * 3))
         memories = [Memory.from_node(n) for n in result.nodes]
-        if project_id:
-            memories = [m for m in memories if m.project_id == project_id or not m.project_id]
-        return memories[:limit]
+        filtered = []
+        for m in memories:
+            if scope and m.scope != scope:
+                if not (scope == MemoryScope.GLOBAL and m.scope == MemoryScope.GLOBAL):
+                    continue
+            if project_id:
+                if m.scope == MemoryScope.PROJECT and m.project_id != project_id:
+                    continue
+            filtered.append(m)
+        return filtered[:limit]
+
+    async def search_scoped(self, query: str, limit: int = 10) -> list[Memory]:
+        project_id = self._active_project_id
+        result = self._store.search_by_keyword(query, QueryOptions(limit=limit * 3))
+        memories = [Memory.from_node(n) for n in result.nodes]
+        filtered = []
+        for m in memories:
+            if m.scope == MemoryScope.GLOBAL:
+                filtered.append(m)
+            elif m.scope == MemoryScope.PROJECT:
+                if project_id and m.project_id == project_id:
+                    filtered.append(m)
+            elif m.scope == MemoryScope.SESSION:
+                if m.session_id == self._active_session_id:
+                    filtered.append(m)
+        return filtered[:limit]
 
     async def recall(self, memory_id: str) -> Memory | None:
         for node in self._store.graph.get_all_nodes():
@@ -203,6 +299,16 @@ class MemorySystem:
                 self._store.delete_node(node.id)
                 self._dirty = True
                 return
+
+    async def forget_project(self, project_id: str) -> int:
+        count = 0
+        for node in self._store.graph.get_all_nodes():
+            meta = node.metadata or {}
+            if meta.get("scope") == MemoryScope.PROJECT and meta.get("project_id") == project_id:
+                self._store.delete_node(node.id)
+                count += 1
+                self._dirty = True
+        return count
 
     async def search_nodes(self, query: SearchQuery) -> SearchResult:
         return self._store.search(query)
@@ -320,6 +426,3 @@ class MemorySystem:
             lambda: MemorySystem(event_bus=event_bus),
             scope="singleton",
         )
-
-
-

@@ -827,14 +827,17 @@ class ConversationManager(IConversationService):
             return
         try:
             from aios.core.memory_system import Memory, MemoryType
-            memory = Memory(
-                type=MemoryType.FACT,
-                content=f"User: {user_input}\nAssistant: {response[:200]}",
-                source="conversation",
-                conversation_id=conversation_id,
-                importance=0.5,
-            )
-            await self._memory.store(memory)
+            if self._memory._is_candidate(user_input):
+                memory = Memory(
+                    type=MemoryType.FACT,
+                    content=user_input,
+                    source="conversation",
+                    conversation_id=conversation_id,
+                    importance=0.7,
+                )
+                await self._memory.store(memory, force=False)
+        except ValueError:
+            pass
         except Exception as e:
             raise MemoryError(f"Memory update failed: {e}", original=e)
 
