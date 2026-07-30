@@ -57,7 +57,7 @@ DEFAULT_CONFIG = {
     },
     "voice": {
         "stt_engine": "whisper",
-        "tts_engine": "edge",
+        "tts_engine": "pyttsx3",
         "wake_word": "hey eve",
     },
     "network": {

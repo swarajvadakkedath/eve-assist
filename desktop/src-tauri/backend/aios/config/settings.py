@@ -74,7 +74,7 @@ class AiosSettings(BaseSettings):
 
     # Voice
     voice_stt_engine: str = "whisper"
-    voice_tts_engine: str = "edge"
+    voice_tts_engine: str = "pyttsx3"
     voice_wake_word: str = "hey eve"
 
     # Network
