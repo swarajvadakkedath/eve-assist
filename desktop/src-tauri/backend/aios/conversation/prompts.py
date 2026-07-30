@@ -37,6 +37,32 @@ def build_system_prompt(conversation: Any | None = None, context: dict | None = 
             parts.append(f"\nActive application: {context['active_app']}")
         if context.get("active_file"):
             parts.append(f"\nActive file: {context['active_file']}")
+        if context.get("project"):
+            proj = context["project"]
+            if isinstance(proj, dict):
+                proj_name = proj.get("name", "")
+                proj_type = proj.get("framework", "") or proj.get("type", "")
+                if proj_name:
+                    parts.append(f"\nProject: {proj_name}")
+                if proj_type:
+                    parts.append(f"\nProject type: {proj_type}")
+        if context.get("git"):
+            git = context["git"]
+            if isinstance(git, dict):
+                branch = git.get("branch", "")
+                dirty = git.get("dirty", False)
+                if branch:
+                    parts.append(f"\nGit branch: {branch}")
+                if dirty:
+                    parts.append("\nGit status: uncommitted changes")
+        if context.get("editor"):
+            editor = context["editor"]
+            if isinstance(editor, dict) and editor.get("active_file"):
+                parts.append(f"\nEditor file: {editor['active_file']}")
+        if context.get("terminal"):
+            terminal = context["terminal"]
+            if isinstance(terminal, dict) and terminal.get("cwd"):
+                parts.append(f"\nWorking directory: {terminal['cwd']}")
 
     return "\n".join(parts)
 

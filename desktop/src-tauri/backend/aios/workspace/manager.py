@@ -8,7 +8,7 @@ from aios.workspace.models import (
     Workspace, WorkspaceSnapshot, Application, Project, Repository, Editor, Terminal,
     FrameworkType, GitStatus, AppCategory,
 )
-from aios.workspace.sensors import ActiveWindowSensor, ProcessSensor, FileSystemSensor
+from aios.workspace.sensors import ActiveWindowSensor, ProcessSensor
 from aios.workspace.detector import ProjectDetector
 from aios.workspace.git import GitCollector
 from aios.workspace.cache import WorkspaceCache
@@ -24,7 +24,6 @@ class WorkspaceManager:
     def __init__(self, event_bus: Any | None = None, memory: Any | None = None, db: Any | None = None):
         self._window_sensor = ActiveWindowSensor()
         self._process_sensor = ProcessSensor()
-        self._fs_sensor = FileSystemSensor()
         self._project_detector = ProjectDetector()
         self._git = GitCollector()
         self._cache = WorkspaceCache(ttl_seconds=10)
@@ -39,7 +38,6 @@ class WorkspaceManager:
             return
         await self._window_sensor.start()
         await self._process_sensor.start()
-        await self._fs_sensor.start()
         self._running = True
         logger.info("workspace_manager.started")
 
@@ -48,7 +46,6 @@ class WorkspaceManager:
         await self._watcher.stop()
         await self._window_sensor.stop()
         await self._process_sensor.stop()
-        await self._fs_sensor.stop()
         logger.info("workspace_manager.stopped")
 
     async def get_current_snapshot(self) -> WorkspaceSnapshot:

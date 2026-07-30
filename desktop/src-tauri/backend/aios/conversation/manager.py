@@ -57,7 +57,6 @@ from aios.conversation.search import ConversationSearch, SearchResult
 from aios.conversation.branching import BranchManager
 from aios.conversation.analytics import AnalyticsTracker, ConversationAnalytics
 from aios.conversation.export import ConversationExporter
-from aios.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -73,6 +72,7 @@ class ConversationManager(IConversationService):
         context_engine: Any | None = None,
         repository: Any | None = None,
         execution_engine: Any | None = None,
+        workspace_manager: Any | None = None,
     ):
         self._ai_router = ai_router
         self._memory = memory_system
@@ -82,6 +82,7 @@ class ConversationManager(IConversationService):
         self._context_engine = context_engine
         self._repository = repository
         self._execution_engine = execution_engine
+        self._workspace_manager = workspace_manager
 
         self._conversations: dict[str, Conversation] = {}
         self._messages: dict[str, list[Message]] = {}
@@ -520,7 +521,6 @@ class ConversationManager(IConversationService):
         selected_capabilities = []
         execution_ctx = None
         observations = []
-        MAX_AGENT_STEPS = 5
         
         if intent not in ["conversation", "question"]:
             plan = await self._safe_create_plan(content, context)
@@ -764,17 +764,21 @@ class ConversationManager(IConversationService):
         return self._messages.get(conversation_id, [])
 
     async def _gather_context(self, conversation_id: str) -> dict:
-        if not self._context_engine:
-            return {}
-        try:
-            return {
-                "active_app": await self._context_engine.get_active_app(),
-                "active_file": await self._context_engine.get_active_file(),
-                "project": await self._context_engine.detect_project(),
-            }
-        except Exception as e:
-            logger.error("context.gather_failed", error=str(e))
-            return {}
+        if self._workspace_manager:
+            try:
+                return await self._workspace_manager.get_context_for_conversation()
+            except Exception as e:
+                logger.error("context.workspace_gather_failed", error=str(e))
+        if self._context_engine:
+            try:
+                return {
+                    "active_app": await self._context_engine.get_active_app(),
+                    "active_file": await self._context_engine.get_active_file(),
+                    "project": await self._context_engine.detect_project(),
+                }
+            except Exception as e:
+                logger.error("context.gather_failed", error=str(e))
+        return {}
 
     async def _safe_gather_context(self, conversation_id: str) -> dict:
         try:

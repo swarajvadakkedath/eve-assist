@@ -111,6 +111,10 @@ async def lifespan(app: FastAPI):
     conversation_repo = FileConversationRepository()
     conversation_repo.recover()
 
+    workspace_manager = WorkspaceManager(event_bus=event_bus, memory=memory)
+    workspace_service = WorkspaceService(workspace_manager)
+    await workspace_manager.start()
+
     conversation_manager = ConversationManager(
         ai_router=smart_router,
         memory_system=memory,
@@ -119,6 +123,7 @@ async def lifespan(app: FastAPI):
         capability_registry=capability_registry,
         context_engine=context,
         repository=conversation_repo,
+        workspace_manager=workspace_manager,
     )
     conversation_service = ConversationService(
         manager=conversation_manager,
@@ -146,10 +151,6 @@ async def lifespan(app: FastAPI):
         permission_manager=permissions,
         event_bus=event_bus,
     )
-
-    workspace_manager = WorkspaceManager(event_bus=event_bus, memory=memory)
-    workspace_service = WorkspaceService(workspace_manager)
-    await workspace_manager.start()
 
     plugin_manager = PluginManager(
         tool_manager=tool_manager,
