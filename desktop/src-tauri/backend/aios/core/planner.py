@@ -10,7 +10,8 @@ from aios.core.capability_registry import CapabilityRegistry
 from aios.core.adapters.base import sanitize_error
 
 
-MIN_CAPABILITY_SCORE = 0.3
+MIN_CAPABILITY_SCORE = 0.25
+MAX_PLAN_STEPS = 5
 
 _step_order = {
     "search": 10, "search.files": 10, "search.by_extension": 10, "search.by_name": 10,
@@ -74,6 +75,7 @@ class Plan:
     status: str = "pending"
     context: dict = field(default_factory=dict)
     created_at: datetime = None
+    error: str | None = None
 
     def __post_init__(self):
         if not self.id:
@@ -144,11 +146,13 @@ class Planner:
                 steps_with_order.append((order, step))
 
         if not steps_with_order:
-            step = Step(id=uuid4().hex, capability="request.process", params={"request": request})
-            steps_with_order.append((50, step))
+            plan.status = "failed"
+            plan.error = f"No matching capability found for: {request}"
+            self._plans[plan.id] = plan
+            return plan
 
         steps_with_order.sort(key=lambda x: x[0])
-        plan.steps = [s for _, s in steps_with_order]
+        plan.steps = [s for _, s in steps_with_order[:MAX_PLAN_STEPS]]
 
         self._plans[plan.id] = plan
         await self._publish_event("planner:plan_created", {

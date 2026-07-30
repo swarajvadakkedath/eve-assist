@@ -1,6 +1,7 @@
 """ConversationManager — single entry point for all conversations."""
 
 import asyncio
+import json
 import time
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
@@ -518,9 +519,14 @@ class ConversationManager(IConversationService):
         plan = None
         selected_capabilities = []
         execution_ctx = None
+        observations = []
+        MAX_AGENT_STEPS = 5
+        
         if intent not in ["conversation", "question"]:
             plan = await self._safe_create_plan(content, context)
-            if plan and plan.steps:
+            if plan and plan.error:
+                yield create_status_event("planning_failed", plan.error)
+            elif plan and plan.steps:
                 selected_capabilities = [step.capability for step in plan.steps]
                 yield create_planner_started_event(content)
                 yield create_planner_completed_event(len(plan.steps))
@@ -552,17 +558,55 @@ class ConversationManager(IConversationService):
                         cancelled=execution.status == ExecutionStatus.CANCELLED,
                     )
 
-                    if plan and plan.steps:
-                        for step in plan.steps:
-                            yield create_tool_requested_event(step.capability, step.capability)
-                            yield create_tool_running_event(step.capability)
-                            step_success = execution_ctx is not None and execution_ctx.error is None
-                            step_duration = (execution_ctx.duration_ms or 0) / max(len(plan.steps), 1) if execution_ctx else 0
-                            yield create_tool_completed_event(step.capability, step_success, step_duration)
-
+                    for step in plan.steps:
+                        step_result = None
+                        step_error = None
+                        step_success = False
+                        if result and result.tool_results:
+                            for tr in result.tool_results:
+                                if tr.get("capability") == step.capability:
+                                    step_result = tr.get("result")
+                                    step_error = tr.get("error")
+                                    step_success = tr.get("success", False)
+                                    break
+                        
+                        yield create_tool_requested_event(step.capability, step.capability)
+                        yield create_tool_running_event(step.capability)
+                        
+                        observation = {
+                            "tool": step.capability,
+                            "status": "success" if step_success else "failed",
+                            "result": step_result,
+                            "error": step_error,
+                        }
+                        observations.append(observation)
+                        
+                        yield create_tool_completed_event(
+                            step.capability, step_success,
+                            (execution_ctx.duration_ms or 0) / max(len(plan.steps), 1) if execution_ctx else 0
+                        )
 
         history = await self._ensure_messages_loaded(conversation_id)
         context_window = await self._history_manager.build_context_window(history, memories)
+
+        observation_text = ""
+        if observations:
+            obs_lines = ["\nTool execution results:"]
+            for obs in observations:
+                status_str = obs["status"]
+                tool_str = obs["tool"]
+                if obs["status"] == "success" and obs["result"]:
+                    result_data = obs["result"]
+                    if isinstance(result_data, dict):
+                        result_str = json.dumps(result_data, indent=2)[:500]
+                    else:
+                        result_str = str(result_data)[:500]
+                    obs_lines.append(f"\n[{tool_str}] {status_str}:\n{result_str}")
+                elif obs["error"]:
+                    obs_lines.append(f"\n[{tool_str}] {status_str}: {obs['error']}")
+                else:
+                    obs_lines.append(f"\n[{tool_str}] {status_str}")
+            observation_text = "\n".join(obs_lines)
 
         llm_messages = messages_to_llm_format(
             context_window,
@@ -570,6 +614,12 @@ class ConversationManager(IConversationService):
             memory_context=build_memory_context(memories),
             tool_descriptions=build_tool_descriptions(await self._safe_list_tools()),
         )
+
+        if observation_text:
+            llm_messages.append({
+                "role": "system",
+                "content": f"IMPORTANT: The following are actual results from tool execution. Base your response ONLY on these results. Do NOT claim actions succeeded unless the results confirm it.\n{observation_text}"
+            })
 
         yield create_final_response_event()
         yield create_status_event("generating", "Generating response...")
