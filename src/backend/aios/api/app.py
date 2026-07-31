@@ -274,8 +274,8 @@ async def lifespan(app: FastAPI):
     app.state.log_viewer = log_viewer
     app.state.windows_adapter = windows_adapter
 
-    logger.info("aios.started", version="1.1.0")
-    await event_bus.publish("system:startup", {"version": "1.1.0"})
+    logger.info("aios.started", version="1.2.0-rc.1")
+    await event_bus.publish("system:startup", {"version": "1.2.0-rc.1"})
 
     await status_service.set_status(AppStatus.READY)
 
@@ -299,7 +299,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(
         title="AIOS API",
-        version="1.1.0",
+        version="1.2.0-rc.1",
         description="AI Operating System - Intelligent layer for Windows",
         lifespan=lifespan,
     )
@@ -358,7 +358,7 @@ def register_routes(app: FastAPI):
     async def health_check(request: Request):
         return {
             "status": "healthy",
-            "version": "1.0.0",
+            "version": "1.2.0-rc.1",
             "uptime": 0,
             "modules": {
                 "event_bus": "healthy",

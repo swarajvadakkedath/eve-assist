@@ -34,7 +34,7 @@ async def test_initialize_sets_loop(service):
 async def test_status_before_initialize(service):
     status = service.status()
     assert status.state == "stopped"
-    assert status.version == "1.1.0"
+    assert status.version == "1.2.0-rc.1"
     assert status.uptime == 0.0
 
 
@@ -99,9 +99,9 @@ async def test_running_property(service):
 
 
 def test_launcher_status_dataclass():
-    status = LauncherStatus(state="running", version="1.1.0")
+    status = LauncherStatus(state="running", version="1.2.0-rc.1")
     assert status.state == "running"
-    assert status.version == "1.1.0"
+    assert status.version == "1.2.0-rc.1"
     assert status.uptime == 0.0
 
 

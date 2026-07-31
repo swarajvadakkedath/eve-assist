@@ -13,7 +13,7 @@ async def register_memory_capabilities(registry: CapabilityRegistry):
             provider_id="memory_system",
             permission_level=1,
             tags=["memory", "store", "write"],
-            version="1.1.0",
+            version="1.2.0-rc.1",
             quality=1.0,
         ),
         Capability(
@@ -24,7 +24,7 @@ async def register_memory_capabilities(registry: CapabilityRegistry):
             provider_id="memory_system",
             permission_level=0,
             tags=["memory", "search", "read"],
-            version="1.1.0",
+            version="1.2.0-rc.1",
             quality=1.0,
         ),
         Capability(
@@ -35,7 +35,7 @@ async def register_memory_capabilities(registry: CapabilityRegistry):
             provider_id="memory_system",
             permission_level=0,
             tags=["memory", "recall", "read"],
-            version="1.1.0",
+            version="1.2.0-rc.1",
             quality=1.0,
         ),
         Capability(
@@ -46,7 +46,7 @@ async def register_memory_capabilities(registry: CapabilityRegistry):
             provider_id="memory_system",
             permission_level=2,
             tags=["memory", "forget", "delete"],
-            version="1.1.0",
+            version="1.2.0-rc.1",
             quality=1.0,
         ),
         Capability(
@@ -57,7 +57,7 @@ async def register_memory_capabilities(registry: CapabilityRegistry):
             provider_id="memory_system",
             permission_level=0,
             tags=["memory", "traverse", "graph", "read"],
-            version="1.1.0",
+            version="1.2.0-rc.1",
             quality=1.0,
         ),
         Capability(
@@ -68,7 +68,7 @@ async def register_memory_capabilities(registry: CapabilityRegistry):
             provider_id="memory_system",
             permission_level=0,
             tags=["memory", "stats", "read"],
-            version="1.1.0",
+            version="1.2.0-rc.1",
             quality=1.0,
         ),
     ]
