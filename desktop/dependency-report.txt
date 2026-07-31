@@ -1,5 +1,5 @@
 ﻿# Eve OS - Python Dependency Report
-# Generated: 2026-07-30 18:55:36
+# Generated: 2026-07-31 21:03:51
 # Python: 3.12.9 (amd64)
 
 - fastapi==0.141.1
@@ -9,7 +9,7 @@
 - pydantic_settings==2.14.2
 - structlog==26.1.0
 - aiosqlite==0.22.1
-- openai==2.50.0
+- openai==2.52.0
 - anthropic==0.120.2
 - psutil==7.2.2
 - PIL==12.3.0
