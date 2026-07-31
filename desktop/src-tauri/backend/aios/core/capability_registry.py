@@ -42,7 +42,7 @@ class Capability:
     returns: dict = field(default_factory=dict)
     permission_level: int = 0
     tags: list[str] = field(default_factory=list)
-    version: str = "1.2.0-rc.1"
+    version: str = "1.2.0"
     quality: float = 1.0
     supported_interfaces: list[str] = field(default_factory=lambda: ["chat"])
     supports_streaming: bool = False
