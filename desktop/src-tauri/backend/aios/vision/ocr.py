@@ -1,7 +1,9 @@
 """OCR text extraction — Tesseract, EasyOCR, and mock providers."""
 
+import os
 import re
 from io import BytesIO
+from pathlib import Path
 import shutil
 
 from PIL import Image
@@ -13,6 +15,23 @@ logger = get_logger(__name__)
 
 _TESSERACT_AVAILABLE: bool | None = None
 _LANG_PATTERN = re.compile(r"^[a-zA-Z]{2,3}(-[a-zA-Z]+)*$")
+_WINDOWS_TESSERACT_PATHS = [
+    Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Tesseract-OCR" / "tesseract.exe",
+    Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Tesseract-OCR" / "tesseract.exe",
+    Path(os.environ.get("LOCALAPPDATA", "")) / "Tesseract-OCR" / "tesseract.exe",
+    Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "chocolatey" / "bin" / "tesseract.exe",
+]
+
+
+def _find_tesseract() -> str | None:
+    """Find tesseract executable via PATH or common Windows locations."""
+    exe = shutil.which("tesseract")
+    if exe:
+        return exe
+    for path in _WINDOWS_TESSERACT_PATHS:
+        if path.exists():
+            return str(path)
+    return None
 
 
 def _check_tesseract() -> bool:
@@ -21,8 +40,16 @@ def _check_tesseract() -> bool:
         return _TESSERACT_AVAILABLE
     try:
         import pytesseract
-        exe = shutil.which("tesseract") or pytesseract.get_tesseract_version()
-        _TESSERACT_AVAILABLE = True
+        exe = _find_tesseract()
+        if exe:
+            pytesseract.pytesseract.tesseract_cmd = exe
+            tessdata = str(Path(exe).parent / "tessdata")
+            if Path(tessdata).exists():
+                os.environ.setdefault("TESSDATA_PREFIX", tessdata)
+            _TESSERACT_AVAILABLE = True
+        else:
+            pytesseract.get_tesseract_version()
+            _TESSERACT_AVAILABLE = True
     except Exception:
         _TESSERACT_AVAILABLE = False
         logger.warning(

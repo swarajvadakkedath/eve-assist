@@ -140,3 +140,48 @@ class TestRedactSensitive:
         result = await redact_sensitive(text)
         assert "123-45-6789" not in result
         assert "a@b.com" not in result
+
+
+class TestFindTesseract:
+    """Regression: _find_tesseract resolves Tesseract via PATH or Windows common paths."""
+
+    def test_returns_shutil_which_when_found(self):
+        from aios.vision.ocr import _find_tesseract
+        with patch("shutil.which", return_value=r"C:\fake\tesseract.exe"):
+            result = _find_tesseract()
+            assert result == r"C:\fake\tesseract.exe"
+
+    def test_returns_windows_path_when_which_fails(self):
+        from pathlib import Path
+        from aios.vision.ocr import _find_tesseract, _WINDOWS_TESSERACT_PATHS
+        fake_path = _WINDOWS_TESSERACT_PATHS[0]
+        real_exists = Path.exists
+
+        def fake_exists(p):
+            return p == fake_path
+
+        with patch("shutil.which", return_value=None), \
+             patch.object(Path, "exists", fake_exists):
+            result = _find_tesseract()
+            assert result == str(fake_path)
+
+    def test_returns_none_when_neither_found(self):
+        from aios.vision.ocr import _find_tesseract
+        with patch("shutil.which", return_value=None), \
+             patch("pathlib.Path.exists", return_value=False):
+            result = _find_tesseract()
+            assert result is None
+
+    def test_check_tesseract_sets_tesseract_cmd(self):
+        from aios.vision import ocr as ocr_mod
+        import aios.vision.ocr as mod
+        mod._TESSERACT_AVAILABLE = None
+        fake_exe = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        mock_pytesseract = MagicMock()
+        with patch("aios.vision.ocr._find_tesseract", return_value=fake_exe), \
+             patch("pathlib.Path.exists", return_value=True), \
+             patch.dict("sys.modules", {"pytesseract": mock_pytesseract}):
+            result = _check_tesseract()
+            assert result is True
+            assert mock_pytesseract.pytesseract.tesseract_cmd == fake_exe
+        mod._TESSERACT_AVAILABLE = None

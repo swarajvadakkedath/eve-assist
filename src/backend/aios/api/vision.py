@@ -1,6 +1,7 @@
 """REST API routes for the Vision Interface."""
 
 import base64
+import sys
 from io import BytesIO
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
@@ -16,10 +17,17 @@ vision_session: VisionSession | None = None
 vision_pipeline = None  # VisionPipeline — set by app.py at startup
 
 
+def _get_pipeline():
+    mod = sys.modules[__name__]
+    return getattr(mod, "vision_pipeline", None)
+
+
 def _get_session() -> VisionSession:
-    if vision_session is None:
+    mod = sys.modules[__name__]
+    vs = getattr(mod, "vision_session", None)
+    if vs is None:
         raise HTTPException(status_code=503, detail="Vision service not initialized")
-    return vision_session
+    return vs
 
 
 class CaptureRequest(BaseModel):
@@ -123,11 +131,13 @@ async def analyze(req: AnalyzeRequest):
 
 @router.post("/analyze-upload")
 async def analyze_upload(file: UploadFile = File(...), conversation_id: str | None = None):
-    if vision_pipeline and vision_session:
+    pipeline = _get_pipeline()
+    session = _get_session()
+    if pipeline:
         try:
             contents = await file.read()
-            observation = await vision_pipeline.observe_image(
-                session_id=vision_session.state.session_id or "",
+            observation = await pipeline.observe_image(
+                session_id=session.state.session_id or "",
                 image_data=contents,
                 conversation_id=conversation_id,
             )
@@ -145,7 +155,6 @@ async def analyze_upload(file: UploadFile = File(...), conversation_id: str | No
         except Exception as e:
             raise HTTPException(status_code=500, detail=sanitize_error(str(e)))
     # Fallback: session-only analysis
-    session = _get_session()
     try:
         contents = await file.read()
         observation = await session.analyze_uploaded_image(contents)
