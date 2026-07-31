@@ -17,6 +17,28 @@ from aios.models.memory import NodeInput
 
 CONTEXT_ENGINE_SOURCE = "context_engine"
 MEMORY_NODE_TYPE = "observation"
+_KNOWN_IDE_APPS = frozenset({
+    "code", "vscode", "visual studio code",
+    "idea", "intellij", "intellij idea",
+    "pycharm", "pycharm64",
+    "webstorm", "webstorm64",
+    "goland", "goland64",
+    "rider", "rider64",
+    "clion", "clion64",
+    "phpstorm", "phpstorm64",
+    "rubymine", "rubymine64",
+    "datagrip", "datagrip64",
+    "android studio",
+    "sublime text", "sublime_text",
+    "atom", "notepad++", "notepad++(64-bit)",
+    "vim", "nvim", "neovim",
+    "emacs",
+    "eclipse",
+    "xcode",
+    "zed",
+    "cursor",
+    "windsurf",
+})
 
 
 class ContextEngine:
@@ -38,6 +60,10 @@ class ContextEngine:
         self._poll_task: asyncio.Task | None = None
         self._idle_threshold: float = 60.0
         self._last_activity_time: float = 0.0
+        self._last_external_project: ProjectInfo | None = None
+        self._last_external_app: str = ""
+        self._cache_timestamp: float = 0.0
+        self._CACHE_MAX_AGE: float = 300.0  # 5 minutes
 
     # ------------------------------------------------------------------
     # DI Registration
@@ -79,8 +105,22 @@ class ContextEngine:
         return None
 
     async def detect_project(self) -> ProjectInfo | None:
-        if self._current:
+        if self._current and self._current.project:
             return self._current.project
+        if self._last_external_project:
+            import time
+            age = time.monotonic() - self._cache_timestamp
+            if age > self._CACHE_MAX_AGE:
+                self._last_external_project = None
+                self._last_external_app = ""
+                return None
+            if self._last_external_project.path:
+                from pathlib import Path
+                if not Path(self._last_external_project.path).exists():
+                    self._last_external_project = None
+                    self._last_external_app = ""
+                    return None
+            return self._last_external_project
         return None
 
     async def get_recent_activity(self, minutes: int = 5) -> list[Context]:
@@ -112,6 +152,9 @@ class ContextEngine:
             except asyncio.CancelledError:
                 pass
             self._poll_task = None
+        self._last_external_project = None
+        self._last_external_app = ""
+        self._cache_timestamp = 0.0
         if self._event_bus:
             await self._event_bus.publish(
                 "context:engine_stopped",
@@ -159,6 +202,20 @@ class ContextEngine:
             inferred_type = infer_project_type_from_file(active_file)
             if inferred_type:
                 project = ProjectInfo(path="", type=inferred_type, markers=[])
+        is_eve_active = app.lower() in ("eve", "eve ai", "") or not app
+        is_ide_active = app.lower().replace(" ", "") in _KNOWN_IDE_APPS or any(
+            ide in app.lower() for ide in _KNOWN_IDE_APPS
+        )
+        if project and not is_eve_active:
+            self._last_external_project = project
+            self._last_external_app = app
+            import time
+            self._cache_timestamp = time.monotonic()
+        elif is_eve_active and self._last_external_project:
+            project = self._last_external_project
+        elif not is_eve_active and not is_ide_active and not project:
+            self._last_external_project = None
+            self._last_external_app = ""
         activity = detect_activity(app, window_title)
         now = datetime.now(timezone.utc).timestamp()
         if activity == ActivityType.IDLE:

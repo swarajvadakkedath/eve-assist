@@ -34,10 +34,20 @@ class StopListeningRequest(BaseModel):
 class SpeakRequest(BaseModel):
     text: str
 
+    def __init__(self, **data):
+        super().__init__(**data)
+        if len(self.text) > 10000:
+            self.text = self.text[:10000]
+
 
 class SendTextRequest(BaseModel):
     text: str
     conversation_id: str | None = None
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        if len(self.text) > 50000:
+            self.text = self.text[:50000]
 
 
 class UpdateConfigRequest(BaseModel):

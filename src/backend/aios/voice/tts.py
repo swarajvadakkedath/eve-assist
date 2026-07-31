@@ -39,8 +39,8 @@ class TTSEngine:
         try:
             if self._provider == TTSProvider.PYTTSX3:
                 import pyttsx3
-                self._engine = pyttsx3.init()
-                self._apply_voice_settings()
+                self._engine = await asyncio.to_thread(pyttsx3.init)
+                await asyncio.to_thread(self._apply_voice_settings)
             self._worker_task = asyncio.create_task(self._worker_loop())
             logger.info("tts.initialized", provider=self._provider.value)
         except ImportError:
@@ -90,7 +90,7 @@ class TTSEngine:
         self._should_stop = True
         if self._engine and self._provider == TTSProvider.PYTTSX3:
             try:
-                self._engine.stop()
+                await asyncio.to_thread(self._engine.stop)
             except Exception:
                 pass
         self._is_speaking = False
@@ -185,15 +185,16 @@ class TTSEngine:
         try:
             if self._provider == TTSProvider.PYTTSX3:
                 import pyttsx3
-                engine = pyttsx3.init()
-                for v in engine.getProperty("voices"):
+                engine = await asyncio.to_thread(pyttsx3.init)
+                raw_voices = await asyncio.to_thread(engine.getProperty, "voices")
+                for v in raw_voices:
                     voices.append({
                         "id": v.id,
                         "name": v.name,
                         "languages": v.languages,
                         "gender": v.gender,
                     })
-                engine.stop()
+                await asyncio.to_thread(engine.stop)
         except Exception:
             pass
         if not voices:
@@ -206,15 +207,15 @@ class TTSEngine:
         devices = []
         try:
             import pyttsx3
-            engine = pyttsx3.init()
-            voices = engine.getProperty("voices")
+            engine = await asyncio.to_thread(pyttsx3.init)
+            voices = await asyncio.to_thread(engine.getProperty, "voices")
             for i, v in enumerate(voices):
                 devices.append(AudioDevice(
                     id=v.id,
                     name=v.name or f"Voice {i}",
                     is_default=(i == 0),
                 ))
-            engine.stop()
+            await asyncio.to_thread(engine.stop)
         except Exception:
             pass
         if not devices:
@@ -240,7 +241,7 @@ class TTSEngine:
                 pass
         if self._engine and self._provider == TTSProvider.PYTTSX3:
             try:
-                self._engine.stop()
+                await asyncio.to_thread(self._engine.stop)
             except Exception:
                 pass
         self._engine = None

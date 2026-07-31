@@ -743,7 +743,8 @@ class ConversationManager(IConversationService):
     async def _safe_retrieve_memories(self, query: str, conversation_id: str) -> list:
         try:
             return await self._retrieve_memories(query, conversation_id)
-        except Exception:
+        except Exception as e:
+            logger.warning("memory.recall_failed_silently", error=str(e)[:200])
             return []
 
     async def _safe_create_plan(self, content: str, context: dict) -> Any | None:
@@ -787,8 +788,8 @@ class ConversationManager(IConversationService):
     async def _safe_update_memory(self, user_input: str, response: str, conversation_id: str) -> None:
         try:
             await self._update_memory(user_input, response, conversation_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("memory.store_failed_silently", error=str(e)[:200])
 
     # ── Vision Observation Injection ────────────────────────────────
 

@@ -45,8 +45,7 @@ class STTEngine:
                     self._microphone = sr.Microphone()
             else:
                 self._microphone = sr.Microphone()
-            with self._microphone:
-                self._recognizer.adjust_for_ambient_noise(self._microphone, duration=1.0)
+            await asyncio.to_thread(self._adjust_ambient_noise)
             logger.info("stt.initialized", provider=self._provider.value)
         except ImportError:
             logger.warning("stt.speech_recognition_not_available")
@@ -54,6 +53,12 @@ class STTEngine:
         except Exception as e:
             logger.error("stt.initialization_failed", error=str(e))
             self._provider = STTProvider.MOCK
+
+    def _adjust_ambient_noise(self):
+        """Blocking ambient noise calibration — must run in a thread."""
+        if self._microphone and self._recognizer:
+            with self._microphone:
+                self._recognizer.adjust_for_ambient_noise(self._microphone, duration=1.0)
 
     async def start_listening(self, language: str | None = None) -> None:
         if self._is_listening:
@@ -114,36 +119,51 @@ class STTEngine:
                 yield Transcript(text="", status=TranscriptStatus.FINAL, error="STT not initialized")
                 return
 
-            with self._microphone as source:
-                self._recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                while self._is_listening:
-                    try:
-                        audio = self._recognizer.listen(source, timeout=1.0, phrase_time_limit=5.0)
-                        result = await self._transcribe(audio)
-                        if result.text:
+            await asyncio.to_thread(self._calibrate_source)
+            while self._is_listening:
+                try:
+                    audio = await asyncio.to_thread(self._listen_blocking, timeout=1.0, phrase_time_limit=5.0)
+                    if audio is None:
+                        continue
+                    result = await self._transcribe(audio)
+                    if result.text:
+                        yield Transcript(
+                            text=result.text,
+                            status=TranscriptStatus.PARTIAL,
+                            confidence=result.confidence,
+                            language=result.language or self._language,
+                        )
+                        if result.is_final:
                             yield Transcript(
                                 text=result.text,
-                                status=TranscriptStatus.PARTIAL,
+                                status=TranscriptStatus.FINAL,
                                 confidence=result.confidence,
                                 language=result.language or self._language,
                             )
-                            if result.is_final:
-                                yield Transcript(
-                                    text=result.text,
-                                    status=TranscriptStatus.FINAL,
-                                    confidence=result.confidence,
-                                    language=result.language or self._language,
-                                )
-                    except sr.WaitTimeoutError:
-                        continue
-                    except sr.UnknownValueError:
-                        continue
-                    except Exception as e:
-                        logger.error("stt.stream_error", error=str(e))
-                        yield Transcript(text="", status=TranscriptStatus.FINAL, error=str(e))
+                except sr.WaitTimeoutError:
+                    continue
+                except sr.UnknownValueError:
+                    continue
+                except Exception as e:
+                    logger.error("stt.stream_error", error=str(e))
+                    yield Transcript(text="", status=TranscriptStatus.FINAL, error=str(e))
         except Exception as e:
             logger.error("stt.stream_failed", error=str(e))
             yield Transcript(text="", status=TranscriptStatus.FINAL, error=str(e))
+
+    def _calibrate_source(self):
+        """Blocking ambient noise calibration for streaming — must run in a thread."""
+        if self._recognizer and self._microphone:
+            with self._microphone as source:
+                self._recognizer.adjust_for_ambient_noise(source, duration=0.5)
+
+    def _listen_blocking(self, timeout: float = 1.0, phrase_time_limit: float = 5.0):
+        """Blocking audio listen — must run in a thread. Returns audio or None on timeout."""
+        import speech_recognition as sr
+        if not self._recognizer or not self._microphone:
+            return None
+        with self._microphone as source:
+            return self._recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
 
     async def _transcribe(self, audio) -> STTResult:
         if not self._recognizer:
@@ -151,7 +171,10 @@ class STTEngine:
 
         try:
             if self._provider == STTProvider.GOOGLE:
-                text = self._recognizer.recognize_google(audio, language=self._language, show_all=False)
+                text = await asyncio.to_thread(
+                    self._recognizer.recognize_google, audio,
+                    language=self._language, show_all=False,
+                )
                 return STTResult(text=text, confidence=0.8, language=self._language, is_final=True)
             elif self._provider == STTProvider.WHISPER:
                 text = await asyncio.to_thread(
@@ -161,13 +184,18 @@ class STTEngine:
                 )
                 return STTResult(text=text, confidence=0.85, language=self._language, is_final=True)
             elif self._provider == STTProvider.SPHINX:
-                text = self._recognizer.recognize_sphinx(audio, language=self._language[:2])
+                text = await asyncio.to_thread(
+                    self._recognizer.recognize_sphinx, audio, language=self._language[:2],
+                )
                 return STTResult(text=text, confidence=0.6, language=self._language, is_final=True)
             elif self._provider == STTProvider.AZURE:
                 key = self._config.get("azure_key", "")
                 region = self._config.get("azure_region", "")
                 if key and region:
-                    text = self._recognizer.recognize_azure(audio, key=key, location=region, language=self._language)
+                    text = await asyncio.to_thread(
+                        self._recognizer.recognize_azure, audio,
+                        key=key, location=region, language=self._language,
+                    )
                     return STTResult(text=text, confidence=0.9, language=self._language, is_final=True)
             return STTResult(text="", is_final=False, error="No suitable provider")
         except Exception as e:

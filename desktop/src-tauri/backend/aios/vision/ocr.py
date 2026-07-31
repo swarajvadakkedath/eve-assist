@@ -1,18 +1,49 @@
 """OCR text extraction — Tesseract, EasyOCR, and mock providers."""
 
+import re
 from io import BytesIO
+import shutil
 
 from PIL import Image
 
 from aios.vision.models import OCRResult
+from aios.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+_TESSERACT_AVAILABLE: bool | None = None
+_LANG_PATTERN = re.compile(r"^[a-zA-Z]{2,3}(-[a-zA-Z]+)*$")
+
+
+def _check_tesseract() -> bool:
+    global _TESSERACT_AVAILABLE
+    if _TESSERACT_AVAILABLE is not None:
+        return _TESSERACT_AVAILABLE
+    try:
+        import pytesseract
+        exe = shutil.which("tesseract") or pytesseract.get_tesseract_version()
+        _TESSERACT_AVAILABLE = True
+    except Exception:
+        _TESSERACT_AVAILABLE = False
+        logger.warning(
+            "ocr.tesseract_unavailable",
+            hint="Install Tesseract: https://github.com/UB-Mannheim/tesseract/wiki",
+        )
+    return _TESSERACT_AVAILABLE
 
 
 async def extract_text(image: Image.Image, lang: str = "eng") -> str:
+    if not _LANG_PATTERN.match(lang):
+        logger.warning("ocr.invalid_lang", lang=lang)
+        return ""
+    if not _check_tesseract():
+        return ""
     import pytesseract
     try:
         text = pytesseract.image_to_string(image, lang=lang)
         return text.strip()
-    except Exception:
+    except Exception as e:
+        logger.warning("ocr.extract_text_failed", error=str(e)[:200])
         return ""
 
 
@@ -22,6 +53,10 @@ async def extract_text_from_path(image_path: str, lang: str = "eng") -> str:
 
 
 async def extract_text_with_details(image: Image.Image, lang: str = "eng") -> OCRResult:
+    if not _LANG_PATTERN.match(lang):
+        return OCRResult(text="", error=f"Invalid language code: {lang}")
+    if not _check_tesseract():
+        return OCRResult(text="", error="Tesseract not installed")
     import pytesseract
     try:
         data = pytesseract.image_to_data(image, lang=lang, output_type=pytesseract.Output.DICT)

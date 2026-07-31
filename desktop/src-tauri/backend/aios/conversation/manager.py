@@ -1,7 +1,6 @@
 """ConversationManager — single entry point for all conversations."""
 
 import asyncio
-import json
 import time
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
@@ -57,6 +56,7 @@ from aios.conversation.search import ConversationSearch, SearchResult
 from aios.conversation.branching import BranchManager
 from aios.conversation.analytics import AnalyticsTracker, ConversationAnalytics
 from aios.conversation.export import ConversationExporter
+from aios.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -72,7 +72,6 @@ class ConversationManager(IConversationService):
         context_engine: Any | None = None,
         repository: Any | None = None,
         execution_engine: Any | None = None,
-        workspace_manager: Any | None = None,
     ):
         self._ai_router = ai_router
         self._memory = memory_system
@@ -82,7 +81,6 @@ class ConversationManager(IConversationService):
         self._context_engine = context_engine
         self._repository = repository
         self._execution_engine = execution_engine
-        self._workspace_manager = workspace_manager
 
         self._conversations: dict[str, Conversation] = {}
         self._messages: dict[str, list[Message]] = {}
@@ -520,13 +518,9 @@ class ConversationManager(IConversationService):
         plan = None
         selected_capabilities = []
         execution_ctx = None
-        observations = []
-        
         if intent not in ["conversation", "question"]:
             plan = await self._safe_create_plan(content, context)
-            if plan and plan.error:
-                yield create_status_event("planning_failed", plan.error)
-            elif plan and plan.steps:
+            if plan and plan.steps:
                 selected_capabilities = [step.capability for step in plan.steps]
                 yield create_planner_started_event(content)
                 yield create_planner_completed_event(len(plan.steps))
@@ -558,55 +552,17 @@ class ConversationManager(IConversationService):
                         cancelled=execution.status == ExecutionStatus.CANCELLED,
                     )
 
-                    for step in plan.steps:
-                        step_result = None
-                        step_error = None
-                        step_success = False
-                        if result and result.tool_results:
-                            for tr in result.tool_results:
-                                if tr.get("capability") == step.capability:
-                                    step_result = tr.get("result")
-                                    step_error = tr.get("error")
-                                    step_success = tr.get("success", False)
-                                    break
-                        
-                        yield create_tool_requested_event(step.capability, step.capability)
-                        yield create_tool_running_event(step.capability)
-                        
-                        observation = {
-                            "tool": step.capability,
-                            "status": "success" if step_success else "failed",
-                            "result": step_result,
-                            "error": step_error,
-                        }
-                        observations.append(observation)
-                        
-                        yield create_tool_completed_event(
-                            step.capability, step_success,
-                            (execution_ctx.duration_ms or 0) / max(len(plan.steps), 1) if execution_ctx else 0
-                        )
+                    if plan and plan.steps:
+                        for step in plan.steps:
+                            yield create_tool_requested_event(step.capability, step.capability)
+                            yield create_tool_running_event(step.capability)
+                            step_success = execution_ctx is not None and execution_ctx.error is None
+                            step_duration = (execution_ctx.duration_ms or 0) / max(len(plan.steps), 1) if execution_ctx else 0
+                            yield create_tool_completed_event(step.capability, step_success, step_duration)
+
 
         history = await self._ensure_messages_loaded(conversation_id)
         context_window = await self._history_manager.build_context_window(history, memories)
-
-        observation_text = ""
-        if observations:
-            obs_lines = ["\nTool execution results:"]
-            for obs in observations:
-                status_str = obs["status"]
-                tool_str = obs["tool"]
-                if obs["status"] == "success" and obs["result"]:
-                    result_data = obs["result"]
-                    if isinstance(result_data, dict):
-                        result_str = json.dumps(result_data, indent=2)[:500]
-                    else:
-                        result_str = str(result_data)[:500]
-                    obs_lines.append(f"\n[{tool_str}] {status_str}:\n{result_str}")
-                elif obs["error"]:
-                    obs_lines.append(f"\n[{tool_str}] {status_str}: {obs['error']}")
-                else:
-                    obs_lines.append(f"\n[{tool_str}] {status_str}")
-            observation_text = "\n".join(obs_lines)
 
         llm_messages = messages_to_llm_format(
             context_window,
@@ -614,12 +570,6 @@ class ConversationManager(IConversationService):
             memory_context=build_memory_context(memories),
             tool_descriptions=build_tool_descriptions(await self._safe_list_tools()),
         )
-
-        if observation_text:
-            llm_messages.append({
-                "role": "system",
-                "content": f"IMPORTANT: The following are actual results from tool execution. Base your response ONLY on these results. Do NOT claim actions succeeded unless the results confirm it.\n{observation_text}"
-            })
 
         yield create_final_response_event()
         yield create_status_event("generating", "Generating response...")
@@ -764,21 +714,17 @@ class ConversationManager(IConversationService):
         return self._messages.get(conversation_id, [])
 
     async def _gather_context(self, conversation_id: str) -> dict:
-        if self._workspace_manager:
-            try:
-                return await self._workspace_manager.get_context_for_conversation()
-            except Exception as e:
-                logger.error("context.workspace_gather_failed", error=str(e))
-        if self._context_engine:
-            try:
-                return {
-                    "active_app": await self._context_engine.get_active_app(),
-                    "active_file": await self._context_engine.get_active_file(),
-                    "project": await self._context_engine.detect_project(),
-                }
-            except Exception as e:
-                logger.error("context.gather_failed", error=str(e))
-        return {}
+        if not self._context_engine:
+            return {}
+        try:
+            return {
+                "active_app": await self._context_engine.get_active_app(),
+                "active_file": await self._context_engine.get_active_file(),
+                "project": await self._context_engine.detect_project(),
+            }
+        except Exception as e:
+            logger.error("context.gather_failed", error=str(e))
+            return {}
 
     async def _safe_gather_context(self, conversation_id: str) -> dict:
         try:
@@ -797,7 +743,8 @@ class ConversationManager(IConversationService):
     async def _safe_retrieve_memories(self, query: str, conversation_id: str) -> list:
         try:
             return await self._retrieve_memories(query, conversation_id)
-        except Exception:
+        except Exception as e:
+            logger.warning("memory.recall_failed_silently", error=str(e)[:200])
             return []
 
     async def _safe_create_plan(self, content: str, context: dict) -> Any | None:
@@ -827,25 +774,22 @@ class ConversationManager(IConversationService):
             return
         try:
             from aios.core.memory_system import Memory, MemoryType
-            if self._memory._is_candidate(user_input):
-                memory = Memory(
-                    type=MemoryType.FACT,
-                    content=user_input,
-                    source="conversation",
-                    conversation_id=conversation_id,
-                    importance=0.7,
-                )
-                await self._memory.store(memory, force=False)
-        except ValueError:
-            pass
+            memory = Memory(
+                type=MemoryType.FACT,
+                content=f"User: {user_input}\nAssistant: {response[:200]}",
+                source="conversation",
+                conversation_id=conversation_id,
+                importance=0.5,
+            )
+            await self._memory.store(memory)
         except Exception as e:
             raise MemoryError(f"Memory update failed: {e}", original=e)
 
     async def _safe_update_memory(self, user_input: str, response: str, conversation_id: str) -> None:
         try:
             await self._update_memory(user_input, response, conversation_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("memory.store_failed_silently", error=str(e)[:200])
 
     # ── Vision Observation Injection ────────────────────────────────
 
