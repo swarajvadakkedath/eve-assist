@@ -93,7 +93,7 @@ async def run_launcher():
     trace(f"[{'.' * 50}]")
 
     while True:
-        line = read_line()
+        line = await asyncio.to_thread(read_line)
         if line is None:
             break
         try:
