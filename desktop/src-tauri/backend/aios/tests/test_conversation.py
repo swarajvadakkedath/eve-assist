@@ -144,3 +144,66 @@ async def test_conversation_service_create_with_provider_model():
     conv = await svc.create_conversation(title="test", provider_id="openai-abc", model_id="gpt-4o")
     assert conv.provider_id == "openai-abc"
     assert conv.model_id == "gpt-4o"
+
+
+@pytest.mark.asyncio
+async def test_persistence_across_restart():
+    """Conversations persisted to disk survive backend restart (load_from_repository)."""
+    import tempfile, shutil
+    from pathlib import Path
+    from aios.conversation.file_repository import FileConversationRepository
+    from aios.conversation.manager import ConversationManager
+    from aios.conversation.models import Message, MessageRole
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        repo = FileConversationRepository(base_dir=tmp)
+
+        # --- Session 1: create conversations + messages ---
+        mgr1 = ConversationManager(ai_router=None, repository=repo)
+        conv_a = await mgr1.create_conversation(title="Persist A")
+        conv_b = await mgr1.create_conversation(title="Persist B")
+
+        msg_a1 = Message(conversation_id=conv_a.id, role=MessageRole.USER, content="hello from A")
+        msg_a2 = Message(conversation_id=conv_a.id, role=MessageRole.ASSISTANT, content="hi A")
+        await repo.add_message(msg_a1)
+        await repo.add_message(msg_a2)
+        mgr1._add_message(conv_a.id, msg_a1)
+        mgr1._add_message(conv_a.id, msg_a2)
+
+        msg_b1 = Message(conversation_id=conv_b.id, role=MessageRole.USER, content="hello from B")
+        await repo.add_message(msg_b1)
+        mgr1._add_message(conv_b.id, msg_b1)
+
+        # Conversations visible in memory
+        list1 = await mgr1.list_conversations()
+        ids1 = {c.id for c in list1}
+        assert conv_a.id in ids1
+        assert conv_b.id in ids1
+
+        # --- Session 2: simulate restart (new manager, same repo) ---
+        mgr2 = ConversationManager(ai_router=None, repository=repo)
+        assert len(mgr2._conversations) == 0
+
+        # Before load: list is empty (the bug)
+        list2_before = await mgr2.list_conversations()
+        assert len(list2_before) == 0
+
+        # After load: conversations restored
+        await mgr2.load_from_repository()
+        list2_after = await mgr2.list_conversations()
+        ids2 = {c.id for c in list2_after}
+        assert conv_a.id in ids2
+        assert conv_b.id in ids2
+
+        # Messages retrievable via lazy load
+        history_a = await mgr2.get_history(conv_a.id)
+        assert len(history_a) == 2
+        assert history_a[0].content == "hello from A"
+        assert history_a[1].content == "hi A"
+
+        history_b = await mgr2.get_history(conv_b.id)
+        assert len(history_b) == 1
+        assert history_b[0].content == "hello from B"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

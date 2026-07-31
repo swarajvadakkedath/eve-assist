@@ -125,8 +125,8 @@ async def lifespan(app: FastAPI):
         capability_registry=capability_registry,
         context_engine=context,
         repository=conversation_repo,
-        workspace_manager=workspace_manager,
     )
+    await conversation_manager.load_from_repository()
     conversation_service = ConversationService(
         manager=conversation_manager,
         event_bus=event_bus,

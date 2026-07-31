@@ -94,6 +94,23 @@ class ConversationManager(IConversationService):
         self._analytics = AnalyticsTracker()
         self._exporter = ConversationExporter()
 
+    async def load_from_repository(self) -> None:
+        """Load persisted conversations from disk into the in-memory index.
+
+        Call once during startup, after ConversationManager construction,
+        so that list_conversations() returns previously-saved conversations
+        after a backend restart.
+        """
+        if not self._repository:
+            return
+        try:
+            persisted = await self._repository.list_conversations()
+            for conv in persisted:
+                if conv.id not in self._conversations:
+                    self._conversations[conv.id] = conv
+        except Exception:
+            logger.warning("manager.load_from_repository.failed")
+
     # ── Conversation CRUD ──────────────────────────────────────────
 
     async def create_conversation(self, title: str | None = None, project: str | None = None, provider_id: str | None = None, model_id: str | None = None) -> Conversation:
