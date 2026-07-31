@@ -6,14 +6,29 @@ from difflib import SequenceMatcher
 
 
 def _word_score(text: str, query: str) -> float:
-    """Fuzzy word-match score between 0 and 1."""
+    """Word-level relevance score between 0 and 1.
+    
+    Scores based on exact word overlap, not substring/sequence matching.
+    A capability should only match if its words are relevant to the query.
+    """
     if not query or not text:
         return 0.0
-    q = query.lower()
-    t = text.lower()
-    if q in t:
-        return 1.0
-    return SequenceMatcher(None, q, t).ratio()
+    q_words = set(query.lower().split())
+    t_words = set(text.lower().split())
+    if not q_words or not t_words:
+        return 0.0
+    # Exact word overlap
+    overlap = q_words & t_words
+    if overlap:
+        return len(overlap) / max(len(q_words), len(t_words))
+    # Partial word match (prefix/suffix)
+    partial = 0
+    for qw in q_words:
+        for tw in t_words:
+            if len(qw) >= 3 and len(tw) >= 3:
+                if qw.startswith(tw[:3]) or tw.startswith(qw[:3]):
+                    partial += 0.3
+    return min(partial / max(len(q_words), 1), 0.5)
 
 
 @dataclass

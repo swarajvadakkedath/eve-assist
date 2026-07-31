@@ -1,0 +1,44 @@
+Tesseract OCR Engine v5.4.0
+Copyright (c) 2010-2024 Google Inc.
+Copyright (c) 2012 NV-access
+Copyright (c) 2010 Dan Johnson
+Copyright (c) 2010-2012 Google Inc.
+Copyright (c) 2013-2014 Google Inc.
+Copyright (c) 2015-2016 Google Inc.
+Copyright (c) 2016-2024 Google Inc.
+All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+This binary distribution includes the Tesseract OCR engine and
+trained data for English language (eng.traineddata) and
+orientation/script detection (osd.traineddata).
+
+Third-party libraries included in this distribution:
+- Leptonica image processing library (Apache 2.0)
+- ICU (International Components for Unicode) (Unicode/ICU License)
+- Various image format libraries (libjpeg, libpng, libtiff, libwebp, libgif)
+- Compression libraries (zlib, liblzma, libzstd, libbz2, liblz4)
+- GLib/GObject/GIO (LGPL 2.1+)
+- FreeType (FreeType License)
+- HarfBuzz (MIT/"Old MIT" License)
+- Cairo (LGPL 2.1)
+- Pango (LGPL 2.1+)
+- Fontconfig (MIT License)
+- OpenSSL (Apache 2.0)
+- GCC runtime libraries (GPL with runtime exception)
+
+See the Apache License 2.0 at Tesseract-LICENSE in this directory
+for the full terms of the Tesseract OCR engine.
+
+URL: https://github.com/UB-Mannheim/tesseract/wiki

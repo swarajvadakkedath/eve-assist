@@ -2,6 +2,7 @@
 
 import os
 import re
+import sys
 from io import BytesIO
 from pathlib import Path
 import shutil
@@ -23,8 +24,23 @@ _WINDOWS_TESSERACT_PATHS = [
 ]
 
 
+def _bundled_tesseract_dir() -> Path | None:
+    """Resolve the bundled Tesseract directory relative to the Python executable."""
+    try:
+        python_dir = Path(sys.executable).resolve().parent
+        candidate = python_dir / "tesseract"
+        if (candidate / "tesseract.exe").is_file():
+            return candidate
+    except Exception:
+        pass
+    return None
+
+
 def _find_tesseract() -> str | None:
-    """Find tesseract executable via PATH or common Windows locations."""
+    """Find tesseract executable via bundled, PATH, or common Windows locations."""
+    bundled = _bundled_tesseract_dir()
+    if bundled:
+        return str(bundled / "tesseract.exe")
     exe = shutil.which("tesseract")
     if exe:
         return exe

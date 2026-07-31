@@ -94,8 +94,10 @@ async def lifespan(app: FastAPI):
     smart_router = SmartRouter()
     provider_manager = ProviderManager(smart_router=smart_router)
     provider_manager.register_all_adapters()
-    memory = MemorySystem(event_bus=event_bus)
-    planner = Planner()
+    import os
+    memory_persistence_path = os.path.join(os.path.expanduser("~"), ".eve", "memory.json")
+    memory = MemorySystem(event_bus=event_bus, persistence_path=memory_persistence_path)
+    planner = Planner(capability_registry=capability_registry)
     from aios.core.windows.adapter import WindowsAdapter
     windows_adapter = WindowsAdapter(
         permission_manager=permissions,
@@ -111,6 +113,10 @@ async def lifespan(app: FastAPI):
     conversation_repo = FileConversationRepository()
     conversation_repo.recover()
 
+    workspace_manager = WorkspaceManager(event_bus=event_bus, memory=memory)
+    workspace_service = WorkspaceService(workspace_manager)
+    await workspace_manager.start()
+
     conversation_manager = ConversationManager(
         ai_router=smart_router,
         memory_system=memory,
@@ -119,6 +125,7 @@ async def lifespan(app: FastAPI):
         capability_registry=capability_registry,
         context_engine=context,
         repository=conversation_repo,
+        workspace_manager=workspace_manager,
     )
     conversation_service = ConversationService(
         manager=conversation_manager,
@@ -146,10 +153,6 @@ async def lifespan(app: FastAPI):
         permission_manager=permissions,
         event_bus=event_bus,
     )
-
-    workspace_manager = WorkspaceManager(event_bus=event_bus, memory=memory)
-    workspace_service = WorkspaceService(workspace_manager)
-    await workspace_manager.start()
 
     plugin_manager = PluginManager(
         tool_manager=tool_manager,

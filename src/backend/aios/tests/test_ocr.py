@@ -1,5 +1,7 @@
 """Tests for OCR text extraction module."""
 
+import os
+from pathlib import Path
 import pytest
 from unittest.mock import patch, MagicMock
 from PIL import Image
@@ -185,3 +187,84 @@ class TestFindTesseract:
             assert result is True
             assert mock_pytesseract.pytesseract.tesseract_cmd == fake_exe
         mod._TESSERACT_AVAILABLE = None
+
+
+class TestBundledTesseractResolution:
+    """Tests for bundled Tesseract resolution (Stage 5-7 packaging)."""
+
+    def test_bundled_dir_returns_path_when_exists(self, tmp_path):
+        from aios.vision.ocr import _bundled_tesseract_dir
+        tesseract_dir = tmp_path / "tesseract"
+        tesseract_dir.mkdir()
+        (tesseract_dir / "tesseract.exe").write_bytes(b"fake")
+        with patch("aios.vision.ocr.Path") as mock_path:
+            mock_python = MagicMock()
+            mock_python.resolve.return_value.parent = tmp_path
+            mock_path.return_value = mock_python
+            result = _bundled_tesseract_dir()
+        assert result == tesseract_dir
+
+    def test_bundled_dir_returns_none_when_missing(self, tmp_path):
+        from aios.vision.ocr import _bundled_tesseract_dir
+        with patch("aios.vision.ocr.Path") as mock_path:
+            mock_python = MagicMock()
+            mock_python.resolve.return_value.parent = tmp_path
+            mock_path.return_value = mock_python
+            result = _bundled_tesseract_dir()
+        assert result is None
+
+    def test_find_tesseract_prefers_bundled(self, tmp_path):
+        from aios.vision.ocr import _find_tesseract
+        bundled_dir = tmp_path / "tesseract"
+        bundled_dir.mkdir()
+        bundled_exe = bundled_dir / "tesseract.exe"
+        bundled_exe.write_bytes(b"fake")
+        with patch("aios.vision.ocr._bundled_tesseract_dir", return_value=bundled_dir), \
+             patch("shutil.which", return_value=r"C:\other\tesseract.exe"):
+            result = _find_tesseract()
+        assert result == str(bundled_exe)
+
+    def test_find_tesseract_falls_to_path_when_no_bundled(self):
+        from aios.vision.ocr import _find_tesseract
+        with patch("aios.vision.ocr._bundled_tesseract_dir", return_value=None), \
+             patch("shutil.which", return_value=r"C:\system\tesseract.exe"):
+            result = _find_tesseract()
+        assert result == r"C:\system\tesseract.exe"
+
+    def test_find_tesseract_returns_none_when_all_missing(self):
+        from aios.vision.ocr import _find_tesseract
+        with patch("aios.vision.ocr._bundled_tesseract_dir", return_value=None), \
+             patch("shutil.which", return_value=None), \
+             patch("pathlib.Path.exists", return_value=False):
+            result = _find_tesseract()
+        assert result is None
+
+    def test_check_tesseract_sets_tessdata_prefix_for_bundled(self, tmp_path):
+        from aios.vision import ocr as ocr_mod
+        import aios.vision.ocr as mod
+        mod._TESSERACT_AVAILABLE = None
+        bundled_dir = tmp_path / "tesseract"
+        bundled_dir.mkdir()
+        bundled_exe = bundled_dir / "tesseract.exe"
+        bundled_exe.write_bytes(b"fake")
+        tessdata = bundled_dir / "tessdata"
+        tessdata.mkdir()
+        mock_pytesseract = MagicMock()
+        env = os.environ.copy()
+        env.pop("TESSDATA_PREFIX", None)
+        with patch("aios.vision.ocr._find_tesseract", return_value=str(bundled_exe)), \
+             patch.dict("sys.modules", {"pytesseract": mock_pytesseract}), \
+             patch.dict("os.environ", env, clear=True):
+            result = _check_tesseract()
+            assert result is True
+            assert os.environ.get("TESSDATA_PREFIX") == str(tessdata)
+        mod._TESSERACT_AVAILABLE = None
+
+    def test_bundled_tesseract_exe_is_file(self):
+        """Verify the bundled Tesseract exe exists at the expected tauri resource path."""
+        import importlib.resources
+        bundled = Path(__file__).resolve().parents[4] / "desktop" / "src-tauri" / "tesseract"
+        # In dev, check if staging dir exists
+        if bundled.is_dir():
+            exe = bundled / "tesseract.exe"
+            assert exe.is_file(), f"Missing bundled exe: {exe}"

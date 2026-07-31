@@ -108,15 +108,4 @@ class ProcessSensor(IWorkspaceSensor):
             return {"applications": [], "terminals": [], "ides": []}
 
 
-class FileSystemSensor(IWorkspaceSensor):
-    def __init__(self):
-        self._running = False
 
-    async def start(self) -> None:
-        self._running = True
-
-    async def stop(self) -> None:
-        self._running = False
-
-    async def collect(self) -> dict:
-        return {}

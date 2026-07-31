@@ -7,6 +7,7 @@
   RMDir /r "$LOCALAPPDATA\Eve\python"
   RMDir /r "$LOCALAPPDATA\Eve\backend"
   RMDir /r "$LOCALAPPDATA\Eve\launcher"
+  RMDir /r "$LOCALAPPDATA\Eve\tesseract"
   Delete "$LOCALAPPDATA\Eve\WebView2Loader.dll"
   Delete "$LOCALAPPDATA\Eve\*.exe"
   RMDir "$LOCALAPPDATA\Eve"

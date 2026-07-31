@@ -42,6 +42,7 @@
       "../../launcher": "launcher",
       "../../src/backend": "backend",
       "python": "python",
+      "tesseract": "tesseract",
       "target/release/WebView2Loader.dll": "."
     },
     "windows": {
