@@ -1,4 +1,4 @@
-"""EVE v1.2.0 Phase 13: Jarvis Sandbox Test (Fixed)"""
+"""EVE v1.2.1 Phase 13: Jarvis Sandbox Test (Fixed)"""
 import asyncio
 import sys
 import os

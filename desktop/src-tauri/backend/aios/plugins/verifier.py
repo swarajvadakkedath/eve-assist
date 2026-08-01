@@ -33,7 +33,7 @@ class PluginVerifier:
     Separate from validation, verification focuses on environmental and safety checks.
     """
 
-    def __init__(self, aios_version: str = "1.2.0", sdk_version: str = "1.2.0"):
+    def __init__(self, aios_version: str = "1.2.1", sdk_version: str = "1.2.1"):
         self._aios_version = aios_version
         self._sdk_version = sdk_version
 

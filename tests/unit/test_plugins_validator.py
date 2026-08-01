@@ -232,14 +232,14 @@ class TestPluginValidator:
 
     def test_version_tilde(self):
         result = self.validator.validate_dependencies(
-            make_valid_manifest(dependencies={"dep": "~1.2.0"}),
+            make_valid_manifest(dependencies={"dep": "~1.2.1"}),
             {"dep": "1.2.5"}
         )
         assert result.valid
 
     def test_version_tilde_minor_mismatch(self):
         result = self.validator.validate_dependencies(
-            make_valid_manifest(dependencies={"dep": "~1.2.0"}),
+            make_valid_manifest(dependencies={"dep": "~1.2.1"}),
             {"dep": "1.3.0"}
         )
         assert not result.valid

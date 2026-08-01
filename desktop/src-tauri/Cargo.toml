@@ -1,6 +1,6 @@
 [package]
 name = "eve-desktop"
-version = "1.2.0"
+version = "1.2.1"
 description = "Eve OS Desktop Application"
 authors = ["Eve OS"]
 edition = "2021"

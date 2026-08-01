@@ -1,4 +1,4 @@
-"""EVE v1.2.0 Agent Core Test Suite"""
+"""EVE v1.2.1 Agent Core Test Suite"""
 import asyncio
 import sys
 import os
@@ -231,7 +231,7 @@ async def test_filesystem_e2e():
 
 async def main():
     print("=" * 70)
-    print("EVE v1.2.0 AGENT CORE TEST SUITE")
+    print("EVE v1.2.1 AGENT CORE TEST SUITE")
     print("=" * 70)
     
     await test_planner_wiring()

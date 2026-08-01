@@ -1,4 +1,4 @@
-"""EVE v1.2.0 Phase 11: Failure Tests"""
+"""EVE v1.2.1 Phase 11: Failure Tests"""
 import asyncio
 import sys
 import os

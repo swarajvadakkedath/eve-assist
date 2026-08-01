@@ -1,4 +1,4 @@
-"""EVE v1.2.0 Phase 1: Reproduce P0 - Async compatible"""
+"""EVE v1.2.1 Phase 1: Reproduce P0 - Async compatible"""
 import asyncio
 import sys
 import os
