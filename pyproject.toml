@@ -1,6 +1,6 @@
 [project]
 name = "aios"
-version = "1.2.0"
+version = "1.2.1"
 description = "AI Operating System - Intelligent layer for Windows"
 requires-python = ">=3.12"
 dependencies = [
