@@ -58,6 +58,18 @@ plugins/installed/
 # Screenshots (generated)
 resources/screenshots/
 
+# Test artifacts (generated outputs)
+*.pdf
+*.pptx
+*.docx
+*.xlsx
+
+# Sandbox (ad-hoc test scripts and generated files)
+sandbox/
+
+# Binary installers
+*.exe
+
 # Bundled Python runtime (vendored)
 desktop/src-tauri/python/Lib/site-packages/
 desktop/src-tauri/python/*.dll
