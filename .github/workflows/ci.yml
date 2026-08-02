@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  backend:
+  backend-lint:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,10 +18,57 @@ jobs:
         run: pip install -r requirements.txt
       - name: Lint with ruff
         run: ruff check src/backend/
+
+  backend-typecheck:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
       - name: Type check with mypy
         run: mypy src/backend/
-      - name: Test with pytest
-        run: pytest tests/ --cov=src/backend/ --cov-report=term-missing
+
+  backend-compile:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify Python syntax
+        shell: pwsh
+        run: |
+          $errors = 0
+          Get-ChildItem -Path src/backend -Filter "*.py" -Recurse | ForEach-Object {
+            $result = python -m py_compile $_.FullName 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "COMPILE FAIL: $($_.FullName)"
+              Write-Host $result
+              $errors++
+            }
+          }
+          if ($errors -gt 0) { throw "$errors file(s) failed compilation" }
+          Write-Host "All Python files compile successfully"
+
+  backend-tests:
+    runs-on: windows-latest
+    needs: [backend-lint, backend-typecheck]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run unit and integration tests
+        run: pytest tests/unit/ tests/integration/ tests/agent/ tests/e2e/ --cov=src/backend/ --cov-report=term-missing -v
+      - name: Run launcher tests
+        run: pytest tests/launcher/ -v
+      - name: Run backend embedded tests
+        run: pytest src/backend/aios/tests/ src/backend/aios/conversation/tests/ src/backend/aios/desktop/tests/ src/backend/aios/execution/tests/ src/backend/aios/plugins/tests/ src/backend/aios/vision/tests/ src/backend/aios/voice/tests/ src/backend/aios/workspace/tests/ -v
 
   frontend:
     runs-on: windows-latest
@@ -37,5 +84,24 @@ jobs:
         run: npm ci
       - name: Type check
         run: npx tsc --noEmit
+      - name: Run tests
+        run: npm run test
       - name: Build
         run: npm run build
+
+  mirror-parity:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify backend mirror is in sync
+        shell: pwsh
+        run: |
+          $src = "src/backend"
+          $mirror = "desktop/src-tauri/backend"
+          $differences = diff -rq $src $mirror 2>&1 | Where-Object { $_ -match "\.py$" }
+          if ($differences) {
+            Write-Host "MIRROR DIVERGENCE DETECTED:"
+            $differences | ForEach-Object { Write-Host $_ }
+            throw "Backend mirror is out of sync with src/backend"
+          }
+          Write-Host "Mirror parity verified: src/backend and desktop/src-tauri/backend are identical"
