@@ -56,6 +56,13 @@ export interface ProviderType {
   needs_endpoint: boolean;
   default_endpoint: string;
   has_models_endpoint: boolean;
+  adapter_class?: string;
+  openai_compatible?: boolean;
+  discovery_strategy?: string;
+  commercial_policy?: string;
+  api_key_required?: boolean;
+  icon?: string | null;
+  supports_organization?: boolean;
 }
 
 export const ROUTING_CATEGORIES: RoutingEntry[] = [

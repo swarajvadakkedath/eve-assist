@@ -47,13 +47,9 @@ export default function ProviderConfigurationDialog({
   const [providerId, setProviderId] = useState<string | null>(provider.id || null);
   const nameRef = useRef<HTMLInputElement>(null);
 
-  const needsEndpoint = providerType?.needs_endpoint ||
-    provider.type === "openai_compatible" ||
-    provider.type === "custom" ||
-    provider.type === "ollama" ||
-    provider.type === "lm_studio";
+  const needsEndpoint = providerType?.needs_endpoint ?? false;
 
-  const canHaveOrganization = provider.type === "openai";
+  const canHaveOrganization = providerType?.supports_organization ?? false;
 
   useEffect(() => {
     if (isNew && nameRef.current) {

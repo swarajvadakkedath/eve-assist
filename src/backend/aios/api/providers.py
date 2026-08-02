@@ -67,8 +67,9 @@ async def list_providers(request: Request):
 @router.get("/api/v1/providers/available-types")
 @trace_async
 async def list_available_types(request: Request):
-    manager = _get_manager(request)
-    return {"types": manager.get_available_types()}
+    """Return all provider types with registry metadata (needs_endpoint, icon, etc.)."""
+    from aios.core.provider_registry import all_as_dicts
+    return {"types": all_as_dicts()}
 
 
 @router.get("/api/v1/providers/test-all")
@@ -357,3 +358,44 @@ async def get_routing_diagnostics(request: Request):
         "rate_limits": rate_limit_summary,
         "capabilities": capability_summary,
     }
+
+
+# ------------------------------------------------------------------
+# Onboarding endpoint (spec §6.3)
+# ------------------------------------------------------------------
+
+class OnboardProviderRequest(BaseModel):
+    provider_type: str
+    api_key: str | None = None
+    endpoint_url: str | None = None
+    organization: str | None = None
+    name: str | None = None
+
+
+@router.post("/api/v1/providers/onboard")
+@trace_async
+async def onboard_provider(body: OnboardProviderRequest, request: Request):
+    """Add a new provider instance using registry metadata.
+
+    The caller only needs to supply provider_type + api_key (+ endpoint_url
+    for OpenAI-compatible).  All other fields (adapter class, default endpoint,
+    models endpoint, auth headers) are resolved from the registry.
+    """
+    from aios.core.onboarding import get_onboarding_fields
+
+    fields = get_onboarding_fields(body.provider_type)
+    if not fields:
+        raise HTTPException(status_code=400, detail=f"Unknown provider type: {body.provider_type}")
+
+    manager = _get_manager(request)
+    try:
+        result = manager.add_provider(
+            provider_type=body.provider_type,
+            name=body.name,
+            endpoint_url=body.endpoint_url,
+            api_key=body.api_key,
+            organization=body.organization,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

@@ -7,6 +7,9 @@ interface ProviderTypeInfo {
   needs_endpoint: boolean;
   default_endpoint: string;
   has_models_endpoint: boolean;
+  icon?: string | null;
+  api_key_required?: boolean;
+  supports_organization?: boolean;
 }
 
 interface AddProviderDialogProps {
@@ -84,7 +87,7 @@ export default function AddProviderDialog({ onSelect, onClose }: AddProviderDial
                 onClick={() => onSelect(t)}
               >
                 <span className="pr-add-provider-icon">
-                  {PROVIDER_ICONS[t.id] || "\u2699"}
+                  {t.icon || PROVIDER_ICONS[t.id] || "\u2699"}
                 </span>
                 <span className="pr-add-provider-name">{t.name}</span>
               </button>

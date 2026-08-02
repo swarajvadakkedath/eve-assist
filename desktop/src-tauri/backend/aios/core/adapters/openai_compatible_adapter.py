@@ -52,8 +52,99 @@ def _openrouter_classify(model_raw: dict) -> tuple[CommercialStatus, bool]:
     return cs, is_free
 
 
+# ---------------------------------------------------------------------------
+# Commercial status strategies — keyed by commercial_policy from registry.
+# Each strategy: (model_id, raw_dict) → (CommercialStatus, is_free)
+# ---------------------------------------------------------------------------
+
+def _classify_openrouter(mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
+    """OpenRouter: free if both pricing fields are 0.0 or model id ends with :free."""
+    pricing = raw.get("pricing", {})
+    if isinstance(pricing, dict):
+        prompt_price = pricing.get("prompt", "1")
+        completion_price = pricing.get("completion", "1")
+        try:
+            is_free = float(prompt_price) == 0.0 and float(completion_price) == 0.0
+        except (ValueError, TypeError):
+            is_free = False
+    else:
+        is_free = False
+    if ":free" in mid.lower() or mid.lower().endswith(":free"):
+        is_free = True
+    cs = CommercialStatus.FREE if is_free else CommercialStatus.PAID
+    return cs, is_free
+
+
+def _classify_local(mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
+    return CommercialStatus.LOCAL, True
+
+
+def _classify_free_tier(mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
+    return CommercialStatus.FREE_TIER, True
+
+
+def _classify_free_tier_not_free(mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
+    return CommercialStatus.FREE_TIER, False
+
+
+def _classify_mistral(mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
+    pricing = raw.get("pricing", raw.get("price", {}))
+    if isinstance(pricing, dict):
+        try:
+            if float(pricing.get("prompt", "1") or "1") == 0.0:
+                return CommercialStatus.FREE_TIER, True
+        except (ValueError, TypeError):
+            pass
+    return CommercialStatus.PAID, False
+
+
+def _classify_cerebras(mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
+    return CommercialStatus.PAID, False
+
+
+def _classify_credit_based(mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
+    return CommercialStatus.CREDIT_BASED, False
+
+
+def _classify_paid(mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
+    return CommercialStatus.PAID, False
+
+
+def _generic_classify(mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
+    """Generic: check pricing fields for zero-cost indicators."""
+    pricing = raw.get("pricing", raw.get("price", {}))
+    if isinstance(pricing, dict):
+        prompt_p = pricing.get("prompt", pricing.get("input", "1"))
+        compl_p = pricing.get("completion", pricing.get("output", "1"))
+        try:
+            if float(prompt_p) == 0.0 and float(compl_p) == 0.0:
+                return CommercialStatus.FREE_TIER, True
+        except (ValueError, TypeError):
+            pass
+    return CommercialStatus.UNKNOWN, False
+
+
+# Maps registry commercial_policy → classifier function
+_COMMERCIAL_POLICIES: dict[str, Any] = {
+    "openrouter": _classify_openrouter,
+    "local": _classify_local,
+    "free_tier": _classify_free_tier,
+    "free_tier_not_free": _classify_free_tier_not_free,
+    "mistral": _classify_mistral,
+    "cerebras": _classify_cerebras,
+    "credit_based": _classify_credit_based,
+    "paid": _classify_paid,
+    "generic": _generic_classify,
+}
+
+
 class OpenAICompatibleAdapter(AIProviderAdapter):
-    """Adapter for any OpenAI-compatible API (OpenRouter, LM Studio, etc.)."""
+    """Adapter for any OpenAI-compatible API (OpenRouter, LM Studio, etc.).
+
+    Now config-driven: headers, commercial policy, and discovery strategy
+    are passed via the ``metadata`` dict (populated from ProviderDefinition)
+    instead of being hardcoded per provider_type.
+    """
 
     def __init__(
         self,
@@ -63,6 +154,7 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
         base_url: str = "",
         timeout_config: TimeoutConfig | None = None,
         streaming_manager: StreamingManager | None = None,
+        metadata: dict[str, Any] | None = None,
     ):
         self._provider_type = provider_type
         self._provider_name = provider_name
@@ -70,17 +162,15 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
         self._base_url = base_url.rstrip("/")
         self._timeout_config = timeout_config or TimeoutConfig()
         self._streaming = streaming_manager or StreamingManager()
+        meta = metadata or {}
+        self._commercial_policy: str = meta.get("commercial_policy", "generic")
+        self._discovery_strategy: str = meta.get("discovery_strategy", "openai_v1")
         self._headers = {"Content-Type": "application/json"}
         if api_key:
             self._headers["Authorization"] = f"Bearer {api_key}"
-        if provider_type == "openrouter":
-            self._headers["HTTP-Referer"] = "https://eve-ai.app"
-            self._headers["X-Title"] = "Eve AI"
-        elif provider_type == "github_models":
-            self._headers["Accept"] = "application/vnd.github+json"
-            self._headers["X-GitHub-Api-Version"] = "2026-03-10"
-        elif provider_type == "nvidia":
-            self._headers["Content-Type"] = "application/json"
+        # Apply provider-specific extra headers from registry
+        extra = meta.get("extra_headers", {})
+        self._headers.update(extra)
         self._http_client = httpx.AsyncClient(timeout=self._timeout_config.chat)
 
     @property
@@ -101,65 +191,22 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
         return (await self.health()) == ProviderStatus.CONNECTED
 
     def _classify_free(self, mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
-        """Determine commercial status for a discovered model."""
-        if self._provider_type == "openrouter":
-            return _openrouter_classify(raw)
+        """Determine commercial status for a discovered model.
 
-        # Local providers are always free
-        if self._provider_type in ("ollama", "lm_studio"):
-            return CommercialStatus.LOCAL, True
-
-        # Groq: free tier with rate limits
-        if self._provider_type == "groq":
-            return CommercialStatus.FREE_TIER, True
-
-        # GitHub Models: free for all GitHub accounts
-        if self._provider_type == "github_models":
-            return CommercialStatus.FREE_TIER, True
-
-        # NVIDIA NIM: free tier with rate limits
-        if self._provider_type == "nvidia":
-            return CommercialStatus.FREE_TIER, False
-
-        # Cloudflare Workers AI: free allocation
-        if self._provider_type == "cloudflare":
-            return CommercialStatus.FREE_TIER, False
-
-        # Mistral: check pricing — free tier exists but not all models are free
-        if self._provider_type == "mistral":
-            pricing = raw.get("pricing", raw.get("price", {}))
-            if isinstance(pricing, dict):
-                try:
-                    if float(pricing.get("prompt", "1") or "1") == 0.0:
-                        return CommercialStatus.FREE_TIER, True
-                except (ValueError, TypeError):
-                    pass
-            return CommercialStatus.PAID, False
-
-        # Cerebras: paid with free credits
-        if self._provider_type == "cerebras":
-            return CommercialStatus.PAID, False
-
-        # HuggingFace: credit-based
-        if self._provider_type == "huggingface":
-            return CommercialStatus.CREDIT_BASED, False
-
-        # Generic: check pricing fields
-        pricing = raw.get("pricing", raw.get("price", {}))
-        if isinstance(pricing, dict):
-            prompt_p = pricing.get("prompt", pricing.get("input", "1"))
-            compl_p = pricing.get("completion", pricing.get("output", "1"))
-            try:
-                if float(prompt_p) == 0.0 and float(compl_p) == 0.0:
-                    return CommercialStatus.FREE_TIER, True
-            except (ValueError, TypeError):
-                pass
-
-        return CommercialStatus.UNKNOWN, False
+        Dispatches to a strategy function based on ``self._commercial_policy``
+        (set from the registry).  Adding a new commercial model requires only
+        registering the policy string and writing a small classifier — no edits
+        to this adapter.
+        """
+        strategy = _COMMERCIAL_POLICIES.get(self._commercial_policy)
+        if strategy:
+            return strategy(mid, raw)
+        # Fallback: generic pricing inspection
+        return _generic_classify(raw)
 
     async def list_models(self) -> list[ModelInfo]:
-        # LM Studio: use native /api/v1/models for richer metadata
-        if self._provider_type == "lm_studio":
+        # Use discovery_strategy from registry metadata instead of hardcoded provider_type
+        if self._discovery_strategy == "lmstudio":
             return await self._list_lmstudio_models()
 
         url = f"{self._base_url}/models"

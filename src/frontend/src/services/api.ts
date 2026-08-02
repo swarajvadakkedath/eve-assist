@@ -201,6 +201,11 @@ export const api = {
     list: () => request("/providers"),
     get: (id: string) => request(`/providers/${id}`),
     availableTypes: () => request("/providers/available-types"),
+    onboard: (data: { provider_type: string; api_key?: string; endpoint_url?: string; organization?: string; name?: string }) =>
+      request("/providers/onboard", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     add: (data: Record<string, unknown>) =>
       request("/providers", {
         method: "POST",
