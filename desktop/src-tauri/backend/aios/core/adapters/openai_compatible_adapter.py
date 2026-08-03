@@ -528,19 +528,25 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
             body["tools"] = request.tools
 
         stream_id = f"{self._provider_type}-{id(request)}"
+        url = f"{self._base_url}/chat/completions"
+        logger.info("compatible.stream.request", provider=self._provider_type, model=request.model, url=url)
 
         async def _gen():
             async with self._http_client.stream(
                 "POST",
-                f"{self._base_url}/chat/completions",
+                url,
                 json=body,
                 headers=self._headers,
             ) as resp:
+                logger.info("compatible.stream.response", provider=self._provider_type, status=resp.status_code, content_type=resp.headers.get("content-type", ""))
                 resp.raise_for_status()
+                chunk_count = 0
                 async for chunk in StreamingManager.read_sse_lines(resp):
                     content = StreamingManager.extract_openai_chunk(chunk)
+                    chunk_count += 1
                     if content:
                         yield content
+                logger.info("compatible.stream.done", provider=self._provider_type, chunks_processed=chunk_count)
 
         async for token in self._streaming.stream(stream_id, _gen(), timeout=self._timeout_config.streaming):
             yield token

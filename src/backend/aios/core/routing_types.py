@@ -17,7 +17,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 class CommercialPolicy(str, Enum):
-    FREE_ONLY = "free_only"          # FREE + LOCAL only
+    FREE_ONLY = "free_only"          # FREE + FREE_TIER + LOCAL only
     NO_DIRECT_PAID = "no_direct_paid"  # FREE + FREE_TIER + CREDIT_BASED + LOCAL
     ALLOW_PAID = "allow_paid"        # all valid routes
 

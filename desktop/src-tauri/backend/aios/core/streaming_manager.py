@@ -156,6 +156,7 @@ class StreamingManager:
         - Single-line JSON (OpenAI, Anthropic)
         - Multi-line pretty-printed JSON (Google Gemini)
         - ``[]`` array wrapping (Google Gemini streaming)
+        - Comma-separated JSON objects on the same line
         - Empty keep-alive lines
         """
         buffer = ""
@@ -207,6 +208,7 @@ class StreamingManager:
             if depth == 0 and buffer.strip():
                 text = buffer.strip().lstrip("[").rstrip("]").strip()
                 if text:
+                    # Try parsing as-is first
                     try:
                         parsed = json.loads(text)
                         if isinstance(parsed, list):
@@ -218,7 +220,28 @@ class StreamingManager:
                         depth = 0
                         in_string = False
                         escape_next = False
+                        continue
                     except json.JSONDecodeError:
+                        pass
+
+                    # Fallback: split on },{ boundaries for comma-separated objects
+                    if "},{" in text:
+                        parts = text.split("},{")
+                        for i, part in enumerate(parts):
+                            if i > 0:
+                                part = "{" + part
+                            if i < len(parts) - 1:
+                                part = part + "}"
+                            try:
+                                parsed = json.loads(part)
+                                yield parsed
+                            except json.JSONDecodeError:
+                                continue
+                        buffer = ""
+                        depth = 0
+                        in_string = False
+                        escape_next = False
+                    else:
                         buffer = ""
                         depth = 0
                         in_string = False

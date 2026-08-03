@@ -218,7 +218,7 @@ def _is_commercially_eligible(status: CommercialStatus, policy: CommercialPolicy
     if policy == CommercialPolicy.ALLOW_PAID:
         return True
     if policy == CommercialPolicy.FREE_ONLY:
-        return status in (CommercialStatus.FREE, CommercialStatus.LOCAL)
+        return status in (CommercialStatus.FREE, CommercialStatus.FREE_TIER, CommercialStatus.LOCAL)
     if policy == CommercialPolicy.NO_DIRECT_PAID:
         return status in (
             CommercialStatus.FREE,

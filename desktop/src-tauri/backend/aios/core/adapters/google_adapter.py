@@ -105,7 +105,10 @@ class GoogleAdapter(AIProviderAdapter):
 
     def _chat_url(self, model: str, stream: bool = False) -> str:
         endpoint = "streamGenerateContent" if stream else "generateContent"
-        return f"{self._base_url}/models/{model}:{endpoint}"
+        url = f"{self._base_url}/models/{model}:{endpoint}"
+        if stream:
+            url += "?alt=sse"
+        return url
 
     def _build_contents(self, messages: list[dict]) -> tuple[list[dict], str | None]:
         contents = []
@@ -194,23 +197,34 @@ class GoogleAdapter(AIProviderAdapter):
         body: dict[str, Any] = {"contents": contents}
         if system:
             body["system_instruction"] = {"parts": [{"text": system}]}
+        gen_config: dict[str, Any] = {}
         if request.max_tokens:
-            body["generationConfig"] = {"maxOutputTokens": request.max_tokens}
+            gen_config["maxOutputTokens"] = request.max_tokens
+        if request.temperature:
+            gen_config["temperature"] = request.temperature
+        if gen_config:
+            body["generationConfig"] = gen_config
 
         stream_id = f"google-{id(request)}"
+        url = self._chat_url(model, stream=True)
+        logger.info("google.stream.url", url=url, contents_count=len(contents), has_system=system is not None)
 
         async def _gen():
             async with self._http_client.stream(
                 "POST",
-                self._chat_url(model, stream=True),
+                url,
                 json=body,
                 headers=self._headers,
             ) as resp:
+                logger.info("google.stream.response", status=resp.status_code, content_type=resp.headers.get("content-type", ""))
                 resp.raise_for_status()
+                chunk_count = 0
                 async for chunk in StreamingManager.read_sse_lines(resp):
                     text = StreamingManager.extract_google_chunk(chunk)
+                    chunk_count += 1
                     if text:
                         yield text
+                logger.info("google.stream.done", chunks_processed=chunk_count)
 
         async for token in self._streaming.stream(stream_id, _gen(), timeout=self._timeout_config.streaming):
             yield token
