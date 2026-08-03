@@ -3,6 +3,12 @@
 This is the main API for all launcher operations.
 It does NOT own the UI — no browser opening, no window management.
 Future Tauri integration calls these methods directly.
+
+Lifecycle events logged:
+  launcher:starting, launcher:ready, launcher:stopping, launcher:stopped
+  backend:started, backend:exit, backend:restart_attempt, backend:restart_exhausted
+  heartbeat:ok, heartbeat:missed, heartbeat:transition
+  shutdown:requested, shutdown:completed
 """
 
 import asyncio
@@ -12,30 +18,35 @@ from uuid import UUID, uuid4
 
 from launcher import LAUNCHER_VERSION
 from launcher.launcher_events import (
-    LauncherEvent,
-    LAUNCHER_STARTING,
-    LAUNCHER_READY,
-    LAUNCHER_STOPPING,
-    LAUNCHER_STOPPED,
-    LAUNCHER_ERROR,
-    RESTART_REQUESTED,
-    RESTART_COMPLETED,
-    SHUTDOWN_REQUESTED,
-    SHUTDOWN_COMPLETED,
+    BACKEND_EXIT,
+    BACKEND_RESTART_ATTEMPT,
+    BACKEND_RESTART_EXHAUSTED,
     BACKEND_STARTED,
+    HEARTBEAT_MISSED,
+    HEARTBEAT_TRANSITION,
+    LAUNCHER_ERROR,
+    LAUNCHER_READY,
+    LAUNCHER_STARTING,
+    LAUNCHER_STOPPED,
+    LAUNCHER_STOPPING,
+    RESTART_COMPLETED,
+    RESTART_REQUESTED,
+    SHUTDOWN_COMPLETED,
+    SHUTDOWN_REQUESTED,
     EventHandler,
+    LauncherEvent,
 )
 from launcher.launcher_api import LauncherStatus
-from launcher.services.config_service import ConfigService
-from launcher.services.logger_service import LoggerService
-from launcher.services.process_service import ProcessService
 from launcher.services.backend_service import BackendService
+from launcher.services.config_service import ConfigService
 from launcher.services.frontend_service import BrowserFrontendService, FrontendProtocol
 from launcher.services.health_service import HealthService
+from launcher.services.logger_service import LoggerService
+from launcher.services.process_service import ProcessService
 from launcher.services.provider_service import ProviderService
-from launcher.services.tray_service import TrayService, TrayProtocol
-from launcher.services.startup_service import StartupService
 from launcher.services.shutdown_service import ShutdownService
+from launcher.services.startup_service import StartupService
+from launcher.services.tray_service import TrayProtocol, TrayService
 
 logger = logging.getLogger("eve.launcher")
 
@@ -56,6 +67,7 @@ class LauncherService:
         self._logs = logger_service or LoggerService()
         self._ps = process_service or ProcessService()
         self._backend = backend_service or BackendService(self._ps)
+        self._backend.set_event_handler(self._emit)
         self._frontend = frontend_service or BrowserFrontendService(self._ps)
         self._health: HealthService | None = health_service
         self._providers: ProviderService | None = provider_service
@@ -69,7 +81,7 @@ class LauncherService:
         self._api = None
 
     def _emit(self, event: LauncherEvent):
-        logger.debug("event: %s", event.type)
+        logger.info("lifecycle event: %s (%s)", event.type, event.data)
         for handler in self._subscribers.values():
             try:
                 handler(event)
@@ -88,11 +100,11 @@ class LauncherService:
         self._state = "initializing"
         self._loop = asyncio.get_running_loop()
         self._logs.setup()
-        logger.info("Eve OS Launcher v%s initializing", LAUNCHER_VERSION)
+        logger.info("launcher initializing (v%s)", LAUNCHER_VERSION)
         self._config.save()
         self._emit(LauncherEvent(type=LAUNCHER_STARTING, data={"version": LAUNCHER_VERSION}))
         if self._config.is_first_run:
-            logger.info("first-run pending — call run_first_run_wizard()")
+            logger.info("first-run pending")
         self._health = HealthService(
             backend_url=self._config.backend_url,
             health_url=self._config.health_url,
@@ -113,6 +125,7 @@ class LauncherService:
             health=self._health,
         )
         self._state = "initialized"
+        logger.info("launcher initialized")
         return True
 
     def _on_health_change(self, statuses: dict):
@@ -127,17 +140,19 @@ class LauncherService:
         self._emit(event)
 
     async def _attempt_restart(self, name: str):
-        max_retries = 3
         if name == "backend":
-            sh = self._health.services.get("backend")
-            if sh and sh.restart_count >= max_retries:
-                logger.error("max restarts reached for backend")
-                return
-            logger.info("restarting backend...")
-            await self._backend.restart()
-            if sh:
-                sh.restart_count += 1
-            self._emit(LauncherEvent(type=BACKEND_STARTED, data={"restart": True}))
+            restart_ok = await self._backend.restart()
+            if restart_ok:
+                self._emit(LauncherEvent(type=BACKEND_STARTED, data={
+                    "restart": True,
+                    "attempt": self._backend.restart_count,
+                }))
+            else:
+                logger.error("backend restart failed — service down")
+                self._emit(LauncherEvent(type=BACKEND_RESTART_EXHAUSTED, data={
+                    "attempts": self._backend.restart_count,
+                    "max": self._backend._max_restarts,
+                }))
 
     async def start(self) -> bool:
         if self._state not in ("initialized", "stopped"):
@@ -153,27 +168,33 @@ class LauncherService:
         if ok:
             self._state = "running"
             self._started_at = time.time()
+            self._backend.reset_restart_count()
             self._health.start_monitoring()
             self._emit(LauncherEvent(type=LAUNCHER_READY, data={
                 "backend_url": self._config.backend_url,
                 "version": LAUNCHER_VERSION,
             }))
+            logger.info("launcher ready (backend=%s)", self._config.backend_url)
         else:
             self._state = "error"
             self._emit(LauncherEvent(type=LAUNCHER_ERROR, data={"message": "startup failed"}))
+            logger.error("launcher startup failed")
         return ok
 
     async def stop(self):
         if self._state == "stopped":
             return
         self._state = "stopping"
+        logger.info("launcher stopping")
         self._emit(LauncherEvent(type=LAUNCHER_STOPPING))
         if self._shutdown:
             await self._shutdown.shutdown()
         self._state = "stopped"
         self._emit(LauncherEvent(type=LAUNCHER_STOPPED))
+        logger.info("launcher stopped")
 
     async def restart(self) -> bool:
+        logger.info("launcher restart requested")
         self._emit(LauncherEvent(type=RESTART_REQUESTED))
         await self.stop()
         ok = await self.start()
@@ -182,10 +203,12 @@ class LauncherService:
         return ok
 
     async def shutdown(self):
+        logger.info("launcher shutdown requested")
         self._emit(LauncherEvent(type=SHUTDOWN_REQUESTED))
         self._tray.stop()
         await self.stop()
         self._emit(LauncherEvent(type=SHUTDOWN_COMPLETED))
+        logger.info("launcher shutdown complete")
 
     def status(self) -> LauncherStatus:
         uptime = time.time() - self._started_at if self._started_at > 0 else 0.0

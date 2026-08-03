@@ -1,6 +1,14 @@
-"""Health service — monitor backend, frontend, and internal services."""
+"""Health service — monitor backend, frontend, and internal services.
+
+Emits events for every state transition:
+  healthy → down  : BACKEND_FAILED + HEARTBEAT_TRANSITION
+  down → healthy  : SERVICE_HEALTH_CHANGED + HEARTBEAT_TRANSITION
+  healthy → degraded : BACKEND_DEGRADED + HEARTBEAT_TRANSITION
+  down → down (consecutive) : HEARTBEAT_MISSED
+"""
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Callable
@@ -8,11 +16,18 @@ from typing import Callable
 import httpx
 
 from launcher.launcher_events import (
-    LauncherEvent,
-    BACKEND_FAILED,
     BACKEND_DEGRADED,
+    BACKEND_FAILED,
+    HEARTBEAT_MISSED,
+    HEARTBEAT_OK,
+    HEARTBEAT_TRANSITION,
     SERVICE_HEALTH_CHANGED,
+    LauncherEvent,
 )
+
+logger = logging.getLogger("eve.launcher")
+
+HEARTBEAT_MISS_THRESHOLD = 3
 
 
 @dataclass
@@ -22,6 +37,8 @@ class ServiceHealth:
     details: dict = field(default_factory=dict)
     last_seen: float = 0.0
     restart_count: int = 0
+    consecutive_failures: int = 0
+    last_transition: str = "unknown"
 
 
 @dataclass
@@ -39,6 +56,7 @@ class HealthService:
         on_change: Callable | None = None,
         on_event: Callable | None = None,
         interval: float = 5.0,
+        heartbeat_miss_threshold: int = HEARTBEAT_MISS_THRESHOLD,
     ):
         self._backend_url = backend_url
         self._health_url = health_url
@@ -47,6 +65,7 @@ class HealthService:
         self._interval = interval
         self._running = False
         self._task: asyncio.Task | None = None
+        self._heartbeat_miss_threshold = heartbeat_miss_threshold
         self.services: dict[str, ServiceHealth] = {}
         self.providers: dict[str, ProviderStatus] = {}
         self._init_services()
@@ -67,24 +86,67 @@ class HealthService:
 
     async def check_backend(self) -> ServiceHealth:
         sh = self.services["backend"]
+        previous = sh.status
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(self._health_url, timeout=3)
             if resp.status_code == 200:
                 data = resp.json()
                 modules = data.get("modules", {})
-                previous = sh.status
                 sh.status = "healthy"
                 sh.details = modules
                 sh.last_seen = time.time()
-                if previous in ("down", "degraded", "unknown"):
-                    self._emit(SERVICE_HEALTH_CHANGED, {"service": "backend", "status": "healthy", "modules": modules})
+                sh.consecutive_failures = 0
+
+                if previous != "healthy":
+                    sh.last_transition = f"{previous}→healthy"
+                    self._emit(HEARTBEAT_OK, {
+                        "service": "backend",
+                        "previous": previous,
+                        "modules": modules,
+                    })
+                    self._emit(HEARTBEAT_TRANSITION, {
+                        "service": "backend",
+                        "from": previous,
+                        "to": "healthy",
+                    })
+                    self._emit(SERVICE_HEALTH_CHANGED, {
+                        "service": "backend",
+                        "status": "healthy",
+                        "modules": modules,
+                    })
             else:
                 sh.status = "degraded"
+                sh.consecutive_failures += 1
+                if previous != "degraded":
+                    sh.last_transition = f"{previous}→degraded"
+                    self._emit(HEARTBEAT_TRANSITION, {
+                        "service": "backend",
+                        "from": previous,
+                        "to": "degraded",
+                        "status_code": resp.status_code,
+                    })
                 self._emit(BACKEND_DEGRADED, {"status_code": resp.status_code})
         except Exception as e:
+            sh.consecutive_failures += 1
             sh.status = "down"
+            if previous != "down":
+                sh.last_transition = f"{previous}→down"
+                self._emit(HEARTBEAT_TRANSITION, {
+                    "service": "backend",
+                    "from": previous,
+                    "to": "down",
+                    "error": str(e),
+                })
             self._emit(BACKEND_FAILED, {"error": str(e)})
+
+            if sh.consecutive_failures >= self._heartbeat_miss_threshold:
+                self._emit(HEARTBEAT_MISSED, {
+                    "service": "backend",
+                    "missed_count": sh.consecutive_failures,
+                    "error": str(e),
+                })
+
         return sh
 
     async def check_frontend(self) -> ServiceHealth:

@@ -63,6 +63,8 @@ class ProcessService:
         existing = env.get("PYTHONPATH", "")
         if pkg_path not in existing:
             env["PYTHONPATH"] = f"{pkg_path};{existing}" if existing else pkg_path
+        if "EVE_ENV" not in env:
+            env["EVE_ENV"] = "dev"
         return env
 
     def _get_log_path(self, name: str) -> Path:

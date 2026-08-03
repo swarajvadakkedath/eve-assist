@@ -74,28 +74,47 @@ function addActivity(
   state.activity = [event, ...state.activity].slice(0, MAX_ACTIVITY);
 }
 
+function settled<T>(results: readonly PromiseSettledResult<unknown>[], idx: number, fallback: T): T {
+  const r = results[idx];
+  if (r && r.status === "fulfilled") return (r as PromiseFulfilledResult<T>).value;
+  return fallback;
+}
+
 async function loadAll() {
   try {
     state.loading = true;
     notify();
-    const [providers, health, history, diagnostics, routing, categories, policy, freeModels] =
-      await Promise.all([
-        fetchProviders(),
-        fetchProviderHealth(),
-        fetchHealthHistory(60),
-        fetchDiagnostics(),
-        fetchRouting(),
-        fetchCategories(),
-        fetchCommercialPolicy(),
-        fetchFreeModels(),
-      ]);
+    const results = await Promise.allSettled([
+      fetchProviders(),
+      fetchProviderHealth(),
+      fetchHealthHistory(60),
+      fetchDiagnostics(),
+      fetchRouting(),
+      fetchCategories(),
+      fetchCommercialPolicy(),
+      fetchFreeModels(),
+    ]);
+    const providers = settled(results, 0, []);
+    const health = settled(results, 1, {});
+    const history = settled(results, 2, {});
+    const diagnostics = settled(results, 3, null);
+    const routing = settled(results, 4, []);
+    const categories = settled(results, 5, []);
+    const policy = settled(results, 6, "allow_paid");
+    const freeModels = settled(results, 7, []);
+    const failures = results.filter((r) => r.status === "rejected").map((r) => (r as PromiseRejectedResult).reason);
     state = {
       ...state, providers, health, healthHistory: history, diagnostics,
       routing, categories, policy, freeModels,
-      loading: false, error: null, lastRefresh: Date.now(), lastHealthCheck: Date.now(),
+      loading: false, error: failures.length > 0 ? `Partial load failure: ${failures.length} endpoint(s)` : null,
+      lastRefresh: Date.now(), lastHealthCheck: Date.now(),
       version: state.version + 1,
     };
-    addActivity("background_task", "Dashboard initialized", "success");
+    if (failures.length > 0) {
+      addActivity("warning", `Dashboard loaded with ${failures.length} degraded endpoint(s)`, "warning");
+    } else {
+      addActivity("background_task", "Dashboard initialized", "success");
+    }
     notify();
   } catch (e) {
     state = { ...state, loading: false, error: String(e), version: state.version + 1 };

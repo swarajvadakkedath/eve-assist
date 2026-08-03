@@ -21,9 +21,11 @@ class ShutdownService:
         self._health = health
 
     async def shutdown(self, timeout: float = 10.0):
-        logger.info("shutdown requested")
+        logger.info("shutdown sequence started")
         await self._health.stop_monitoring()
-        logger.info("health monitor stopped")
+        logger.info("health monitoring stopped")
         await self._frontend.stop(timeout=timeout)
+        logger.info("frontend stopped")
         await self._backend.stop(timeout=timeout)
-        logger.info("shutdown complete")
+        logger.info("backend stopped")
+        logger.info("shutdown sequence complete")

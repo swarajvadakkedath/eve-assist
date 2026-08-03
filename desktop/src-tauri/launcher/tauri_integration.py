@@ -6,6 +6,7 @@ It communicates via stdin/stdout JSON lines.
 Protocol:
   Stdin (Rust → Python):  {"type":"command","command":"<cmd>"}
   Stdout (Python → Rust): {"type":"status","state":"<state>",...}
+  Stdout (Python → Rust): {"type":"lifecycle","event":"<event>",...}
 """
 
 import asyncio
@@ -50,6 +51,15 @@ def read_line() -> str | None:
         return None
 
 
+def _lifecycle_event_handler(event):
+    emit({
+        "type": "lifecycle",
+        "event": event.type,
+        "data": event.data,
+        "timestamp": event.timestamp,
+    })
+
+
 async def run_launcher():
     trace("=== Eve Launcher Startup Trace ===")
     t0 = time.monotonic()
@@ -59,6 +69,7 @@ async def run_launcher():
 
     trace("[02] Initializing services")
     await svc.initialize()
+    svc.on_event(_lifecycle_event_handler)
     trace(f"[02] Launcher v{svc.status().version}")
     emit({
         "type": "status",
@@ -141,6 +152,17 @@ async def run_launcher():
                 "frontend_url": cfg.frontend_url,
                 "auto_start": cfg.get("auto_start", False),
                 "dev_mode": cfg.get("dev_mode", False),
+            })
+        elif cmd == "lifecycle":
+            backend = svc.backend
+            emit({
+                "type": "response",
+                "command": "lifecycle",
+                "state": svc.state,
+                "uptime": round(backend.uptime, 1),
+                "restart_count": backend.restart_count,
+                "max_restarts": backend._max_restarts,
+                "backend_pid": backend.get_pid(),
             })
         else:
             emit({"type": "response", "command": cmd, "error": "unknown command"})

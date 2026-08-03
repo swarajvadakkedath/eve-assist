@@ -4,10 +4,139 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use tauri::Manager;
 
+const MAX_LINE_BYTES: usize = 8192;
+
+#[cfg(target_os = "windows")]
+mod winapi {
+    use std::ffi::c_void;
+
+    pub const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
+    pub const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: u32 = 9;
+
+    #[repr(C)]
+    pub struct IoCounters {
+        pub read_operation_count: u64,
+        pub write_operation_count: u64,
+        pub other_operation_count: u64,
+        pub read_transfer_count: u64,
+        pub write_transfer_count: u64,
+        pub other_transfer_count: u64,
+    }
+
+    #[repr(C)]
+    pub struct BasicLimitInformation {
+        pub per_process_user_time_limit: i32,
+        pub per_job_user_time_limit: i32,
+        pub limit_flags: u32,
+        pub minimum_working_set_size: usize,
+        pub maximum_working_set_size: usize,
+        pub active_process_limit: u32,
+        pub affiliate_process_limit: u32,
+        pub priority_class: u32,
+        pub scheduling_class: u32,
+    }
+
+    #[repr(C)]
+    pub struct JobObjectExtendedLimitInformation {
+        pub basic_limit_information: BasicLimitInformation,
+        pub process_memory_limit: usize,
+        pub job_memory_limit: usize,
+        pub peak_process_memory_used: usize,
+        pub peak_job_memory_used: usize,
+        pub io_counters: IoCounters,
+    }
+
+    extern "system" {
+        pub fn CreateJobObjectW(lp_job_attributes: *const c_void, lp_name: *const c_void) -> *mut c_void;
+        pub fn SetInformationJobObject(
+            h_job: *mut c_void,
+            job_object_information_class: u32,
+            lp_job_object_information: *const c_void,
+            cb_job_object_information_length: u32,
+        ) -> i32;
+        pub fn AssignProcessToJobObject(h_job: *mut c_void, h_process: *mut c_void) -> i32;
+        pub fn CloseHandle(h_object: *mut c_void) -> i32;
+    }
+
+    pub struct JobGuard {
+        handle: *mut c_void,
+    }
+
+    unsafe impl Send for JobGuard {}
+    unsafe impl Sync for JobGuard {}
+
+    impl JobGuard {
+        pub fn new() -> Option<Self> {
+            unsafe {
+                let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+                if handle.is_null() {
+                    return None;
+                }
+                let mut info = JobObjectExtendedLimitInformation {
+                    basic_limit_information: BasicLimitInformation {
+                        per_process_user_time_limit: 0,
+                        per_job_user_time_limit: 0,
+                        limit_flags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                        minimum_working_set_size: 0,
+                        maximum_working_set_size: 0,
+                        active_process_limit: 0,
+                        affiliate_process_limit: 0,
+                        priority_class: 0,
+                        scheduling_class: 0,
+                    },
+                    process_memory_limit: 0,
+                    job_memory_limit: 0,
+                    peak_process_memory_used: 0,
+                    peak_job_memory_used: 0,
+                    io_counters: IoCounters {
+                        read_operation_count: 0,
+                        write_operation_count: 0,
+                        other_operation_count: 0,
+                        read_transfer_count: 0,
+                        write_transfer_count: 0,
+                        other_transfer_count: 0,
+                    },
+                };
+                let ok = SetInformationJobObject(
+                    handle,
+                    JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+                    &mut info as *mut _ as *const c_void,
+                    std::mem::size_of::<JobObjectExtendedLimitInformation>() as u32,
+                );
+                if ok == 0 {
+                    CloseHandle(handle);
+                    return None;
+                }
+                Some(JobGuard { handle })
+            }
+        }
+
+        pub fn assign(&self, child: &std::process::Child) -> bool {
+            unsafe {
+                use std::os::windows::io::AsRawHandle;
+                let h_process = child.as_raw_handle() as *mut c_void;
+                AssignProcessToJobObject(self.handle, h_process) != 0
+            }
+        }
+    }
+
+    impl Drop for JobGuard {
+        fn drop(&mut self) {
+            unsafe {
+                if !self.handle.is_null() {
+                    CloseHandle(self.handle);
+                }
+            }
+        }
+    }
+}
+
 pub struct LauncherProcess {
     child: Mutex<Option<Child>>,
     stdin: Mutex<Option<std::process::ChildStdin>>,
     stdout: Mutex<Option<BufReader<std::process::ChildStdout>>>,
+    #[cfg(target_os = "windows")]
+    job: Mutex<Option<winapi::JobGuard>>,
 }
 
 fn bundled_python(resource_dir: &std::path::Path) -> Option<(String, String)> {
@@ -122,6 +251,8 @@ impl LauncherProcess {
             child: Mutex::new(None),
             stdin: Mutex::new(None),
             stdout: Mutex::new(None),
+            #[cfg(target_os = "windows")]
+            job: Mutex::new(None),
         }
     }
 
@@ -188,6 +319,18 @@ impl LauncherProcess {
         let child_stdin = child.stdin.take().ok_or("failed to capture stdin")?;
         let child_stdout = child.stdout.take().ok_or("failed to capture stdout")?;
 
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(job) = winapi::JobGuard::new() {
+                if job.assign(&child) {
+                    eprintln!("[eve] launcher process assigned to job object");
+                } else {
+                    eprintln!("[eve] WARNING: failed to assign launcher to job object");
+                }
+                *self.job.lock().unwrap() = Some(job);
+            }
+        }
+
         *self.child.lock().unwrap() = Some(child);
         *self.stdin.lock().unwrap() = Some(child_stdin);
         *self.stdout.lock().unwrap() = Some(BufReader::new(child_stdout));
@@ -231,10 +374,17 @@ impl LauncherProcess {
     pub fn read_line(&self) -> Result<String, String> {
         let mut stdout = self.stdout.lock().map_err(|e| e.to_string())?;
         if let Some(reader) = stdout.as_mut() {
-            let mut line = String::new();
-            reader
-                .read_line(&mut line)
+            let mut buf = Vec::with_capacity(256);
+            let n = reader
+                .read_until(b'\n', &mut buf)
                 .map_err(|e| format!("read stdout: {e}"))?;
+            if n == 0 {
+                return Ok(String::new());
+            }
+            if std::str::from_utf8(&buf).is_err() {
+                eprintln!("[eve] WARNING: launcher stdout contained non-UTF8 bytes, decoded lossy");
+            }
+            let line = String::from_utf8_lossy(&buf).to_string();
             Ok(line.trim().to_string())
         } else {
             Err("stdout not available".to_string())
