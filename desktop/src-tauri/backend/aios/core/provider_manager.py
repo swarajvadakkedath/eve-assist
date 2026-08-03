@@ -32,6 +32,7 @@ from aios.core.model_catalog import get_catalog_models
 from aios.core.cache import ModelCache
 from aios.core.health_monitor import HealthMonitor, HealthState
 from aios.core.smart_router import SmartRouter, RoutingStrategy
+from aios.core.routing_types import CommercialPolicy
 from aios.core.streaming_manager import StreamingManager
 from aios.core.adapters.base import (
     AIProviderAdapter,
@@ -65,12 +66,13 @@ PROVIDER_META = {
     "mistral": {"name": "Mistral", "endpoint": "https://api.mistral.ai/v1", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
     "cerebras": {"name": "Cerebras", "endpoint": "https://api.cerebras.ai/v1", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
     "github_models": {"name": "GitHub Models", "endpoint": "https://models.inference.ai.azure.com", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
-    "huggingface": {"name": "Hugging Face", "endpoint": "https://api-inference.huggingface.co", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
+    "huggingface": {"name": "Hugging Face", "endpoint": "https://router.huggingface.co/v1", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
     "ollama": {"name": "Ollama", "endpoint": "http://localhost:11434", "models_endpoint": "/api/tags", "chat_endpoint": "/api/chat", "api_key_in": None, "auth_header": None, "auth_prefix": None},
     "lm_studio": {"name": "LM Studio", "endpoint": "http://localhost:1234/v1", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
     "cohere": {"name": "Cohere", "endpoint": "https://api.cohere.com", "models_endpoint": None, "chat_endpoint": "/v2/chat", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
     "cloudflare": {"name": "Cloudflare Workers AI", "endpoint": "", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
     "nvidia": {"name": "NVIDIA NIM", "endpoint": "https://integrate.api.nvidia.com/v1", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
+    "deepinfra": {"name": "DeepInfra", "endpoint": "https://api.deepinfra.com/v1/openai", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
     "openai_compatible": {"name": "OpenAI Compatible", "endpoint": "", "models_endpoint": "/models", "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
     "custom": {"name": "Custom Provider", "endpoint": "", "models_endpoint": None, "chat_endpoint": "/chat/completions", "api_key_in": "header", "auth_header": "Authorization", "auth_prefix": "Bearer "},
 }
@@ -125,6 +127,7 @@ class ProviderManager:
         self._health_monitor = health_monitor or HealthMonitor()
         self._model_cache = model_cache or ModelCache()
         self._streaming = streaming_manager or StreamingManager()
+        self._refresh_task: asyncio.Task | None = None
 
         self._load()
 
@@ -141,7 +144,21 @@ class ProviderManager:
                 self._providers = []
         if self._routing_file.exists():
             try:
-                self._routing_config = json.loads(self._routing_file.read_text("utf-8"))
+                raw = json.loads(self._routing_file.read_text("utf-8"))
+                if isinstance(raw, dict):
+                    # New format: {"commercial_policy": ..., "routing": [...]}
+                    self._routing_config = raw.get("routing", [])
+                    policy_str = raw.get("commercial_policy")
+                    if policy_str:
+                        try:
+                            self._smart_router.commercial_policy = CommercialPolicy(policy_str)
+                        except ValueError:
+                            pass
+                elif isinstance(raw, list):
+                    # Legacy format: bare routing list → migrate to FREE_ONLY default
+                    self._routing_config = raw
+                    self._smart_router.commercial_policy = CommercialPolicy.FREE_ONLY
+                    self._save_routing()
             except (json.JSONDecodeError, OSError):
                 self._routing_config = []
         self._migrate_routing()
@@ -167,8 +184,12 @@ class ProviderManager:
 
     @trace_sync
     def _save_routing(self):
+        payload = {
+            "commercial_policy": self._smart_router.commercial_policy.value,
+            "routing": self._routing_config,
+        }
         self._routing_file.write_text(
-            json.dumps(self._routing_config, indent=2, default=str), "utf-8"
+            json.dumps(payload, indent=2, default=str), "utf-8"
         )
 
     # ------------------------------------------------------------------
@@ -400,7 +421,7 @@ class ProviderManager:
                     streaming_manager=self._streaming,
                 )
             elif ptype in ("openrouter", "mistral", "cerebras", "github_models",
-                           "huggingface", "lm_studio", "nvidia", "openai_compatible", "custom"):
+                           "huggingface", "lm_studio", "nvidia", "deepinfra", "openai_compatible", "custom"):
                 meta = PROVIDER_META.get(ptype, {})
                 pname = provider.get("name") or meta.get("name", ptype)
                 resolved_base = base_url or meta.get("endpoint", "")
@@ -773,9 +794,14 @@ class ProviderManager:
             mid = md["id"]
             seen.add(mid)
             if mid in catalog_by_id:
-                entry = dict(catalog_by_id[mid])
-                # Preserve discovered fields not in catalog
-                entry.update({k: v for k, v in md.items() if k not in entry})
+                entry = dict(md)
+                cm = catalog_by_id[mid]
+                # Preserve discovered fields not in catalog (catalog base + discovered fills gaps)
+                entry.update({k: v for k, v in cm.items() if k not in entry})
+                # Catalog fills commercial status when discovery is non-informative
+                if entry.get("commercialStatus") in (None, "", "unknown") and cm.get("isFree"):
+                    entry["commercialStatus"] = "free"
+                    entry["isFree"] = True
             else:
                 entry = md
             merged.append(entry)
@@ -821,6 +847,70 @@ class ProviderManager:
         await self._model_cache.invalidate(cache_key)
         return await self.fetch_models(provider_id)
 
+    @trace_async
+    async def refresh_all_models(self, concurrency_limit: int = 4) -> dict[str, list[dict]]:
+        """Parallel model discovery across all configured providers.
+
+        Invalidates each provider's model cache and re-fetches concurrently,
+        bounded by ``concurrency_limit``. Returns {provider_id: models}.
+        """
+        provider_ids = [p["id"] for p in self._providers]
+        if not provider_ids:
+            return {}
+
+        for pid in provider_ids:
+            await self._model_cache.invalidate(f"models:{pid}")
+
+        semaphore = asyncio.Semaphore(max(1, concurrency_limit))
+
+        async def _fetch(pid: str) -> tuple[str, list[dict]]:
+            async with semaphore:
+                try:
+                    models = await self.fetch_models(pid)
+                    return pid, models
+                except Exception as e:
+                    logger.warning(
+                        "refresh_all_models.failed",
+                        provider_id=pid,
+                        error=sanitize_error(str(e)[:200]),
+                    )
+                    return pid, self._get_provider(pid).get("models", [])
+
+        results = await asyncio.gather(*(_fetch(pid) for pid in provider_ids))
+        return dict(results)
+
+    # -- Background model refresh -------------------------------------------
+
+    def start_background_refresh(
+        self,
+        interval: float = 3600.0,
+        concurrency_limit: int = 4,
+    ):
+        """Start a periodic background loop refreshing all providers' models in parallel."""
+        if self._refresh_task is not None and not self._refresh_task.done():
+            return
+
+        async def _loop():
+            while True:
+                try:
+                    await asyncio.sleep(interval)
+                    await self.refresh_all_models(concurrency_limit=concurrency_limit)
+                    logger.info("background_model_refresh.completed")
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.warning("background_model_refresh.failed", error=sanitize_error(str(e)[:200]))
+
+        self._refresh_task = asyncio.create_task(_loop())
+
+    def stop_background_refresh(self):
+        if self._refresh_task is not None:
+            self._refresh_task.cancel()
+            self._refresh_task = None
+
+    def is_background_refresh_running(self) -> bool:
+        return self._refresh_task is not None and not self._refresh_task.done()
+
     # ------------------------------------------------------------------
     # Smart Routing
     # ------------------------------------------------------------------
@@ -828,6 +918,20 @@ class ProviderManager:
     @trace_sync
     def get_routing(self) -> list[dict[str, Any]]:
         return list(self._routing_config)
+
+    @trace_sync
+    def get_commercial_policy(self) -> str:
+        return self._smart_router.commercial_policy.value
+
+    @trace_sync
+    def set_commercial_policy(self, policy: str | CommercialPolicy):
+        if isinstance(policy, str):
+            try:
+                policy = CommercialPolicy(policy)
+            except ValueError:
+                raise ValueError(f"Invalid policy: {policy}. Must be free_only, no_direct_paid, or allow_paid")
+        self._smart_router.commercial_policy = policy
+        self._save_routing()
 
     @trace_sync
     def set_routing(self, routing: list[dict[str, Any]]):
@@ -952,6 +1056,7 @@ class ProviderManager:
 
     async def shutdown(self):
         """Gracefully shut down all background tasks and connections."""
+        self.stop_background_refresh()
         self._health_monitor.stop_background_check()
         self._model_cache.cancel_all()
         self._streaming.cancel_all()

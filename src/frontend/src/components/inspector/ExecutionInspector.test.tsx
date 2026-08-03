@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import ExecutionInspector from "./ExecutionInspector";
 import { getSessionStore } from "../execution/session";
@@ -16,6 +16,8 @@ describe("ExecutionInspector", () => {
     store.applyEvent({
       type: "ExecutionCompleted",
       sessionId: "s1",
+      success: true,
+      summary: "Completed",
       durationMs: 5000,
     });
     render(<ExecutionInspector sessionId="s1" onClose={() => {}} />);

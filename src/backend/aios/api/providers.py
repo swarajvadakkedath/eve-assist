@@ -101,6 +101,75 @@ async def add_provider(body: AddProviderRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/api/v1/providers/models/free")
+@trace_async
+async def get_all_free_models(request: Request):
+    manager = _get_manager(request)
+    return {"models": manager.get_all_free_models()}
+
+
+@router.get("/api/v1/providers/types/{provider_type}/models")
+@trace_async
+async def get_provider_type_models(provider_type: str, request: Request):
+    manager = _get_manager(request)
+    return {"models": manager.get_provider_type_models(provider_type)}
+
+
+@router.get("/api/v1/providers/health")
+@trace_async
+async def get_all_health(request: Request):
+    manager = _get_manager(request)
+    all_health = manager.health_monitor.get_all_health()
+    return {"health": {pid: h.to_dict() for pid, h in all_health.items()}}
+
+
+@router.get("/api/v1/providers/health/history")
+@trace_async
+async def get_health_history(request: Request, limit: int = 60):
+    manager = _get_manager(request)
+    all_health = manager.health_monitor.get_all_health()
+    limit = max(1, min(limit, 100))
+    result = {}
+    for pid, h in all_health.items():
+        entries = h.history[-limit:]
+        sanitized = []
+        for e in entries:
+            entry = {
+                "type": e.get("type", "unknown"),
+                "timestamp": e.get("timestamp", 0.0),
+                "latency_ms": e.get("latency_ms", 0.0),
+            }
+            if "health_score" in e:
+                entry["health_score"] = e["health_score"]
+            if "success_rate" in e:
+                entry["success_rate"] = e["success_rate"]
+            if "status" in e:
+                entry["status"] = e["status"]
+            if e.get("type") == "success":
+                entry["state"] = "healthy"
+            elif e.get("type") == "failure":
+                entry["state"] = _failure_state(e.get("status", ""))
+            else:
+                entry["state"] = "unknown"
+            sanitized.append(entry)
+        result[pid] = sanitized
+    return {"history": result}
+
+
+def _failure_state(status: str) -> str:
+    status_map = {
+        "auth_failed": "invalid_key",
+        "invalid_key": "invalid_key",
+        "rate_limited": "rate_limited",
+        "quota_exceeded": "quota_exceeded",
+        "timeout": "degraded",
+        "offline": "unreachable",
+        "disconnected": "unreachable",
+        "error": "degraded",
+    }
+    return status_map.get(status, "degraded")
+
+
 @router.get("/api/v1/providers/{provider_id}")
 @trace_async
 async def get_provider(provider_id: str, request: Request):
@@ -109,6 +178,14 @@ async def get_provider(provider_id: str, request: Request):
     if not result:
         raise HTTPException(status_code=404, detail="Provider not found")
     return result
+
+
+@router.put("/api/v1/providers/reorder")
+@trace_async
+async def reorder_providers(body: ReorderRequest, request: Request):
+    manager = _get_manager(request)
+    manager.reorder_providers(body.provider_ids)
+    return {"status": "ok"}
 
 
 @router.put("/api/v1/providers/{provider_id}")
@@ -152,14 +229,6 @@ async def set_default_provider(provider_id: str, request: Request):
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.put("/api/v1/providers/reorder")
-@trace_async
-async def reorder_providers(body: ReorderRequest, request: Request):
-    manager = _get_manager(request)
-    manager.reorder_providers(body.provider_ids)
-    return {"status": "ok"}
 
 
 @router.post("/api/v1/providers/{provider_id}/test")
@@ -218,6 +287,15 @@ async def set_routing(body: SetRoutingRequest, request: Request):
     return {"routing": manager.get_routing()}
 
 
+@router.get("/api/v1/routing/categories")
+@trace_async
+async def get_routing_categories(request: Request):
+    """Return routing category metadata (id, label, required capabilities) — the
+    single source of truth used by the frontend routing panel."""
+    from aios.core.smart_router import ROUTING_CATEGORIES
+    return {"categories": ROUTING_CATEGORIES}
+
+
 # ------------------------------------------------------------------
 # Commercial policy endpoints (spec §7-11)
 # ------------------------------------------------------------------
@@ -230,8 +308,7 @@ class CommercialPolicyRequest(BaseModel):
 @trace_async
 async def get_commercial_policy(request: Request):
     manager = _get_manager(request)
-    smart_router = getattr(manager, "_smart_router", None)
-    policy = smart_router.commercial_policy.value if smart_router else "allow_paid"
+    policy = manager.get_commercial_policy() if hasattr(manager, "get_commercial_policy") else "free_only"
     return {"policy": policy}
 
 
@@ -244,29 +321,16 @@ async def set_commercial_policy(body: CommercialPolicyRequest, request: Request)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid policy: {body.policy}. Must be free_only, no_direct_paid, or allow_paid")
     manager = _get_manager(request)
-    smart_router = getattr(manager, "_smart_router", None)
-    if smart_router:
-        smart_router.commercial_policy = policy
+    try:
+        manager.set_commercial_policy(policy)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"policy": policy.value}
 
 
 # ------------------------------------------------------------------
 # Multi-account aggregation endpoints
 # ------------------------------------------------------------------
-
-@router.get("/api/v1/providers/models/free")
-@trace_async
-async def get_all_free_models(request: Request):
-    manager = _get_manager(request)
-    return {"models": manager.get_all_free_models()}
-
-
-@router.get("/api/v1/providers/types/{provider_type}/models")
-@trace_async
-async def get_provider_type_models(provider_type: str, request: Request):
-    manager = _get_manager(request)
-    return {"models": manager.get_provider_type_models(provider_type)}
-
 
 @router.get("/api/v1/providers/{provider_id}/models/{model_id}/status")
 @trace_async
@@ -284,14 +348,6 @@ async def get_model_rate_limit(provider_id: str, model_id: str, request: Request
     manager = _get_manager(request)
     rl = manager.health_monitor.get_model_rate_limit(provider_id, model_id)
     return rl.to_dict()
-
-
-@router.get("/api/v1/providers/health")
-@trace_async
-async def get_all_health(request: Request):
-    manager = _get_manager(request)
-    all_health = manager.health_monitor.get_all_health()
-    return {"health": {pid: h.to_dict() for pid, h in all_health.items()}}
 
 
 @router.get("/api/v1/providers/{provider_id}/health")
@@ -323,9 +379,9 @@ async def get_routing_diagnostics(request: Request):
     smart_router = getattr(manager, "_smart_router", None)
 
     # Commercial policy
-    commercial_policy = "allow_paid"
-    if smart_router:
-        commercial_policy = smart_router.commercial_policy.value
+    commercial_policy = "free_only"
+    if hasattr(manager, "get_commercial_policy"):
+        commercial_policy = manager.get_commercial_policy()
 
     # Provider health (sanitized via to_dict)
     all_health = manager.health_monitor.get_all_health()
@@ -342,7 +398,7 @@ async def get_routing_diagnostics(request: Request):
     all_rate_limits = manager.health_monitor.get_all_model_rate_limits()
     rate_limit_summary = {}
     for key, rl in all_rate_limits.items():
-        rl_dict = rl.to_dict()
+        rl_dict = rl if isinstance(rl, dict) else rl.to_dict()
         rl_dict.pop("api_key", None)
         rate_limit_summary[key] = rl_dict
 

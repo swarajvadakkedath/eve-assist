@@ -1,7 +1,7 @@
 import type { ReactNode, HTMLAttributes } from "react";
 
 export interface WorkspaceProps extends HTMLAttributes<HTMLDivElement> {
-  children: ReactNode;
+  children?: ReactNode;
   header?: ReactNode;
   footer?: ReactNode;
   loading?: boolean;

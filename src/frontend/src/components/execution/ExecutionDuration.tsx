@@ -24,7 +24,7 @@ function getElapsed(startedAt?: string): number {
 }
 
 function ExecutionDuration({ startedAt, completedAt, durationMs, running }: ExecutionDurationProps) {
-  const [now, setNow] = useState(Date.now());
+  const [, setNow] = useState(Date.now());
 
   useEffect(() => {
     if (!running) return;

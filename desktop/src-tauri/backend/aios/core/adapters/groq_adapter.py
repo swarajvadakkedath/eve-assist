@@ -12,6 +12,7 @@ from aios.core.adapters.base import AIProviderAdapter, ChatRequest, ChatResponse
 from aios.core.model_info import ModelInfo, CommercialStatus, AvailabilityStatus
 from aios.core.streaming_manager import StreamingManager
 from aios.core.timeout_retry import TimeoutConfig, call_with_timeout
+from aios.core.capability_inference import infer_capabilities, bool_from_inference
 
 logger = structlog.get_logger(__name__)
 
@@ -66,6 +67,9 @@ class GroqAdapter(AIProviderAdapter):
             models = []
             for m in data.get("data", []):
                 mid = m.get("id", "")
+                raw = {k: v for k, v in m.items() if k not in ("id", "object")}
+                inferred = infer_capabilities(mid, raw, "groq")
+                caps = bool_from_inference(inferred)
                 models.append(ModelInfo(
                     id=mid,
                     display_name=mid,
@@ -75,14 +79,16 @@ class GroqAdapter(AIProviderAdapter):
                     context_window=m.get("context_length", 32768) or 32768,
                     max_output_tokens=m.get("max_output_tokens", 8192) or 8192,
                     supports_streaming=True,
-                    supports_tools=True,
-                    supports_json=True,
-                    supports_function_calling=True,
+                    supports_tools=caps["supports_tools"],
+                    supports_json=caps["supports_json"],
+                    supports_function_calling=caps["supports_function_calling"],
+                    supports_reasoning=caps["supports_reasoning"],
+                    supports_thinking=caps["supports_thinking"],
                     is_free=True,
                     commercial_status=CommercialStatus.FREE_TIER,
                     availability=AvailabilityStatus.AVAILABLE,
                     discovery_source="api",
-                    metadata={k: v for k, v in m.items() if k not in ("id", "object")},
+                    metadata={**caps, **raw},
                 ))
             return models
         except Exception as e:

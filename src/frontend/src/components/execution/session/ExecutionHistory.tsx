@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import type { ExecutionSession } from "./types";
 import { getSessionStore } from "./ExecutionSessionStore";
 import ExecutionSessionCard from "./ExecutionSessionCard";
 

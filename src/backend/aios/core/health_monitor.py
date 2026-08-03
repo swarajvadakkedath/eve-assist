@@ -103,6 +103,12 @@ class ProviderHealth:
     history: list[dict] = field(default_factory=list)
     rate_limit: RateLimitInfo = field(default_factory=RateLimitInfo)
 
+    # --- Health scoring (W5) ---
+    total_checks: int = 0
+    successful_checks: int = 0
+    success_rate: float = 1.0          # 0.0–1.0
+    health_score: float = 100.0        # 0–100
+
     def record_success(self, latency_ms: float):
         now = time.monotonic()
         self.state = HealthState.HEALTHY
@@ -113,7 +119,11 @@ class ProviderHealth:
         self.latency_ms = latency_ms
         self.error_message = ""
         self.rate_limit.clear()
-        self._add_history("success", latency_ms=latency_ms)
+        self.total_checks += 1
+        self.successful_checks += 1
+        self._recompute_score()
+        self._add_history("success", latency_ms=latency_ms,
+                          health_score=self.health_score, success_rate=self.success_rate)
 
     def record_failure(self, status: ProviderStatus, error: str, latency_ms: float = 0.0, retry_after: float | None = None):
         now = time.monotonic()
@@ -123,6 +133,7 @@ class ProviderHealth:
         self.consecutive_failures += 1
         self.error_message = sanitize_error(error)
         self.latency_ms = latency_ms
+        self.total_checks += 1
 
         if status in (ProviderStatus.INVALID_KEY, ProviderStatus.AUTH_FAILED):
             self.state = HealthState.INVALID_KEY
@@ -139,7 +150,29 @@ class ProviderHealth:
         else:
             self.state = HealthState.DEGRADED if self.consecutive_failures < 3 else HealthState.UNREACHABLE
 
-        self._add_history("failure", status=status.value, error=sanitize_error(error), latency_ms=latency_ms)
+        self._recompute_score()
+        self._add_history("failure", status=status.value, error=sanitize_error(error),
+                          latency_ms=latency_ms, health_score=self.health_score,
+                          success_rate=self.success_rate)
+
+    def _recompute_score(self):
+        """Derive success_rate and health_score from tracked check history.
+
+        Score (0–100) blends:
+          - success rate over all checks (60%)
+          - uptime recency: 40 if last check succeeded, else decays with consecutive failures
+        """
+        if self.total_checks > 0:
+            self.success_rate = round(self.successful_checks / self.total_checks, 4)
+        else:
+            self.success_rate = 1.0
+
+        recency = 40.0 if self.state == HealthState.HEALTHY else max(0.0, 40.0 - self.consecutive_failures * 10.0)
+        if self.state in (HealthState.INVALID_KEY, HealthState.QUOTA_EXCEEDED, HealthState.UNREACHABLE):
+            recency = 0.0
+        elif self.state == HealthState.RATE_LIMITED:
+            recency = min(recency, 10.0)
+        self.health_score = round(self.success_rate * 60.0 + recency, 1)
 
     def _add_history(self, event_type: str, **kwargs):
         self.history.append({"type": event_type, "timestamp": time.monotonic(), **kwargs})
@@ -158,6 +191,10 @@ class ProviderHealth:
             "latency_ms": self.latency_ms,
             "error_message": self.error_message,
             "rate_limit": self.rate_limit.to_dict(),
+            "total_checks": self.total_checks,
+            "successful_checks": self.successful_checks,
+            "success_rate": self.success_rate,
+            "health_score": self.health_score,
         }
 
 
@@ -223,14 +260,31 @@ class HealthMonitor:
         health = self._health.setdefault(provider_id, ProviderHealth(provider_id=provider_id))
         start = time.monotonic()
         try:
-            await call_with_timeout(
+            status = await call_with_timeout(
                 adapter.health(),
                 timeout=10.0,
                 provider_id=provider_id,
                 operation="health",
             )
             elapsed = (time.monotonic() - start) * 1000
-            health.record_success(elapsed)
+            if status == ProviderStatus.CONNECTED:
+                health.record_success(elapsed)
+            else:
+                # Honor the adapter's reported status — do NOT assume success.
+                if status == ProviderStatus.INVALID_KEY:
+                    health.record_failure(ProviderStatus.AUTH_FAILED, "Invalid API key", elapsed)
+                elif status == ProviderStatus.RATE_LIMITED:
+                    health.record_failure(ProviderStatus.RATE_LIMITED, "Rate limited", elapsed)
+                elif status == ProviderStatus.QUOTA_EXCEEDED:
+                    health.record_failure(ProviderStatus.QUOTA_EXCEEDED, "Quota exhausted", elapsed)
+                elif status == ProviderStatus.TIMEOUT:
+                    health.record_failure(ProviderStatus.TIMEOUT, "Health check timed out", elapsed)
+                elif status in (ProviderStatus.OFFLINE, ProviderStatus.DISCONNECTED):
+                    health.record_failure(ProviderStatus.OFFLINE, "Provider unreachable", elapsed)
+                elif status == ProviderStatus.NOT_CONFIGURED:
+                    health.record_failure(ProviderStatus.ERROR, "Provider not configured", elapsed)
+                else:
+                    health.record_failure(ProviderStatus.ERROR, f"Health check failed: {status.value}", elapsed)
         except ProviderTimeoutError:
             elapsed = (time.monotonic() - start) * 1000
             health.record_failure(ProviderStatus.TIMEOUT, "Health check timed out", elapsed)

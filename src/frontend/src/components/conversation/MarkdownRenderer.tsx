@@ -47,7 +47,7 @@ function renderInlineMarkdown(text: string): string {
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
     .replace(/`(.+?)`/g, "<code>$1</code>")
     .replace(/~~(.+?)~~/g, "<del>$1</del>")
-    .replace(/\[(.+?)\]\((.+?)\)/g, (match, text, url) => {
+    .replace(/\[(.+?)\]\((.+?)\)/g, (_, text, url) => {
       const scheme = url.split(':')[0].toLowerCase();
       if (['javascript', 'data', 'file', 'vbscript'].includes(scheme)) {
         return text;

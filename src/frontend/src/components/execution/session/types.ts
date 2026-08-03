@@ -1,4 +1,4 @@
-import type { ExecutionLogEntry, ExecutionNodeStatus, ExecutionResultData, ExecutionProgress } from "../types";
+import type { ExecutionNodeStatus } from "../types";
 
 export type ExecutionSessionStatus =
   | "planning" | "running" | "waiting" | "permission" | "retrying"

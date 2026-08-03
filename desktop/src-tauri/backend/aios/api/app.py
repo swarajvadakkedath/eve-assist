@@ -1,9 +1,12 @@
 """FastAPI application factory with full module wiring."""
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 from aios.core.auth import AuthManager
 
@@ -11,6 +14,7 @@ from aios.config.settings import AiosSettings
 from aios.utils.logger import setup_logging, get_logger
 from aios.utils.tracer import trace_async
 from aios.core.event_bus import EventBus
+from aios.core.health_monitor import HealthMonitor
 from aios.core.smart_router import SmartRouter
 from aios.core.permission_manager import PermissionManager
 from aios.core.provider_manager import ProviderManager
@@ -65,13 +69,49 @@ from aios.vision.models import VisionConfig, VisionProvider, OCREngine
 logger = None
 
 
+class StartupReadyMiddleware(BaseHTTPMiddleware):
+    """Return 503 until the lifespan finishes initialising app.state.
+
+    Routes in _BYPASS are always allowed through so the launcher and
+    frontend readiness poller can observe the startup→ready transition.
+    """
+
+    _BYPASS = frozenset({
+        "/api/v1/system/health",
+        "/api/v1/system/readiness",
+        "/api/v1/desktop/status",
+    })
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in self._BYPASS:
+            return await call_next(request)
+        if not getattr(request.app.state, "ready", False):
+            from aios.desktop.status_service import StatusService
+            current = StatusService().get_status().value
+            return JSONResponse(
+                {"detail": "Server initializing", "status": current},
+                status_code=503,
+            )
+        return await call_next(request)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global logger
+    app.state.ready = False
     settings = AiosSettings()
     setup_logging(settings.log_level, settings.log_format)
     logger = get_logger(__name__)
     logger.info("lifespan.startup_beginning")
+
+    status_service = StatusService()
+    await status_service.set_status(AppStatus.INITIALIZING)
+
+    import os
+    startup_delay_ms = int(os.environ.get("EVE_STARTUP_DELAY_MS", "0"))
+    if startup_delay_ms > 0:
+        logger.info("lifespan.startup_delay", delay_ms=startup_delay_ms)
+        await asyncio.sleep(startup_delay_ms / 1000)
 
     auth_manager = AuthManager()
     app.state.auth_manager = auth_manager
@@ -91,10 +131,17 @@ async def lifespan(app: FastAPI):
     )
     capability_registry = CapabilityRegistry()
     tool_manager = ToolManager(permissions, capability_registry, event_bus)
-    smart_router = SmartRouter()
-    provider_manager = ProviderManager(smart_router=smart_router)
+    # Single shared HealthMonitor — routing and the API read the same health state.
+    health_monitor = HealthMonitor()
+    smart_router = SmartRouter(health_monitor=health_monitor)
+    provider_manager = ProviderManager(smart_router=smart_router, health_monitor=health_monitor)
     provider_manager.register_all_adapters()
-    import os
+    # Periodic health polling on the shared monitor (staggered in check_all).
+    health_monitor.start_background_check(lambda: provider_manager._adapters, interval=settings.provider_health_interval if hasattr(settings, "provider_health_interval") else None)
+    # Periodic parallel model discovery so capabilities stay fresh in production.
+    model_refresh_interval = settings.model_refresh_interval if hasattr(settings, "model_refresh_interval") else None
+    if model_refresh_interval:
+        provider_manager.start_background_refresh(interval=model_refresh_interval)
     memory_persistence_path = os.path.join(os.path.expanduser("~"), ".eve", "memory.json")
     memory = MemorySystem(event_bus=event_bus, persistence_path=memory_persistence_path)
     planner = Planner(capability_registry=capability_registry)
@@ -164,7 +211,6 @@ async def lifespan(app: FastAPI):
 
     async def on_status_change(status: AppStatus, metadata: dict):
         await event_bus.publish("desktop:status", {"status": status.value, "metadata": metadata})
-    status_service = StatusService()
     status_service.subscribe(on_status_change)
 
     voice_config = VoiceConfig(
@@ -278,11 +324,12 @@ async def lifespan(app: FastAPI):
     await event_bus.publish("system:startup", {"version": "1.2.1"})
 
     await status_service.set_status(AppStatus.READY)
+    app.state.ready = True
 
     yield
 
-    await hot_reload.stop()
-    await performance_monitor.stop()
+    await hot_reload.stop_polling()
+    await performance_monitor.stop_monitoring()
     await voice_session.cleanup()
     await stt_engine.cleanup()
     await tts_engine.cleanup()
@@ -311,6 +358,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    app.add_middleware(StartupReadyMiddleware)
 
     register_routes(app)
 
@@ -366,6 +415,16 @@ def register_routes(app: FastAPI):
                 "tool_manager": "healthy",
                 "memory_system": "healthy",
             },
+        }
+
+    @app.get("/api/v1/system/readiness")
+    async def readiness_check(request: Request):
+        from aios.desktop.status_service import StatusService as _SS
+        ss = _SS()
+        current = ss.get_status()
+        return {
+            "status": current.value,
+            "ready": ss.is_ready,
         }
 
     @app.get("/api/v1/system/status")

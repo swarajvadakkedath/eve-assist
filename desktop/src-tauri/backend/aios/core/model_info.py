@@ -197,14 +197,31 @@ class ModelInfo:
             "output": d.get("costPer1kOutput", d.get("cost_per_1k_output", 0.0)),
         }
 
-        # Determine commercial status from legacy is_free / pricing
+        # Determine commercial status: prefer modern key (to_dict format),
+        # fall back to legacy is_free / pricing heuristic.
+        cs_raw = d.get("commercialStatus", d.get("commercial_status", ""))
         is_free = d.get("isFree", d.get("is_free", False))
-        if is_free:
-            cs = CommercialStatus.FREE
-        elif pricing["input"] == 0.0 and pricing["output"] == 0.0:
-            cs = CommercialStatus.FREE_TIER
+        if isinstance(cs_raw, str) and cs_raw:
+            try:
+                cs = CommercialStatus(cs_raw)
+            except ValueError:
+                cs = CommercialStatus.UNKNOWN
         else:
-            cs = CommercialStatus.PAID
+            if is_free:
+                cs = CommercialStatus.FREE
+            elif pricing["input"] == 0.0 and pricing["output"] == 0.0:
+                cs = CommercialStatus.FREE_TIER
+            else:
+                cs = CommercialStatus.PAID
+
+        # Preserve enable_reasoning / supports_abilityless_models inside metadata
+        metadata = dict(d.get("metadata", {}) or {})
+        if "enable_reasoning" in d:
+            metadata.setdefault("enable_reasoning", d.get("enable_reasoning"))
+        if "supports_abilityless_models" in d:
+            metadata.setdefault("supports_abilityless_models", d.get("supports_abilityless_models"))
+
+        fc = d.get("supportsFunctionCalling", d.get("supports_function_calling", False))
 
         return cls(
             id=d["id"],
@@ -217,21 +234,41 @@ class ModelInfo:
             supports_vision=d.get("supportsVision", d.get("supports_vision", False)),
             supports_reasoning=d.get("supportsReasoning", d.get("supports_reasoning", False)),
             supports_thinking=d.get("supportsThinking", d.get("supports_thinking", False)),
-            supports_function_calling=d.get("supportsFunctionCalling", d.get("supports_function_calling", False)),
+            supports_tools=d.get("supportsTools", d.get("supports_tools", fc)),
+            supports_function_calling=fc,
             supports_json=d.get("supportsJSON", d.get("supports_json", False)),
             supports_embeddings=d.get("supportsEmbeddings", d.get("supports_embeddings", False)),
             supports_audio=d.get("supportsAudio", d.get("supports_audio", False)),
             supports_image_generation=d.get("supportsImageGeneration", d.get("supports_image_generation", False)),
-            supports_system_prompt=d.get("supportsSystemPrompt", d.get("supports_system_prompt", True)),
-            supports_temperature=d.get("supportsTemperature", d.get("supports_temperature", True)),
-            supports_top_p=d.get("supportsTopP", d.get("supports_top_p", True)),
+            supports_video=d.get("supportsVideo", d.get("supports_video", False)),
+            supports_files=d.get("supportsFiles", d.get("supports_files", False)),
+            supports_caching=d.get("supportsCaching", d.get("supports_caching", False)),
+            supports_top_k=d.get("supportsTopK", d.get("supports_top_k", False)),
+            supports_seed=d.get("supportsSeed", d.get("supports_seed", False)),
+            supports_log_probs=d.get("supportsLogProbs", d.get("supports_log_probs", False)),
             speed=d.get("speed", 5),
             quality=d.get("quality", 5),
-            pricing=pricing,
-            is_free=is_free,
+            latency=d.get("latency", 0.0),
+            pricing=d.get("pricing", pricing),
+            is_free=d.get("isFree", d.get("is_free", is_free)),
             commercial_status=cs,
             recommended=d.get("recommended", False),
             deprecated=d.get("deprecated", False),
+            experimental=d.get("experimental", False),
             enabled=d.get("enabled", True),
-            discovery_source="catalog",
+            availability=AvailabilityStatus.AVAILABLE,
+            provider_type=d.get("providerType", d.get("provider_type", "")),
+            provider_instance_id=d.get("providerInstanceId", d.get("provider_instance_id", "")),
+            discovered_at=d.get("discovered_at", d.get("discoveredAt", "")),
+            discovery_source=d.get("discoverySource", d.get("discovery_source", "")),
+            raw_provider_metadata=d.get("rawProviderMetadata", d.get("raw_provider_metadata", {})),
+            metadata=metadata,
         )
+
+    @property
+    def enable_reasoning(self) -> bool | None:
+        return self.metadata.get("enable_reasoning")
+
+    @property
+    def supports_abilityless_models(self) -> bool | None:
+        return self.metadata.get("supports_abilityless_models")

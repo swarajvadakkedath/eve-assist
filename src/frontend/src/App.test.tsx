@@ -23,6 +23,15 @@ vi.mock("./services/voice", () => ({
   },
 }));
 
+vi.mock("./services/statusStore", () => ({
+  startStatusPolling: vi.fn(),
+  stopStatusPolling: vi.fn(),
+  useBackendStatus: vi.fn(() => ({ status: "ready", ready: true })),
+  waitForReady: vi.fn().mockResolvedValue(undefined),
+  getStatusSnapshot: vi.fn(() => ({ status: "ready", ready: true })),
+  subscribeStatusChange: vi.fn(() => vi.fn()),
+}));
+
 const mockFetch = vi.fn().mockResolvedValue({
   ok: true,
   json: vi.fn().mockResolvedValue({ conversations: [] }),

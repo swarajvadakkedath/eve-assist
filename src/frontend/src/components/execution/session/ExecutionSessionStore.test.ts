@@ -31,7 +31,7 @@ describe("ExecutionSessionStore", () => {
   it("lists all sessions for a conversation ordered by creation", () => {
     const s1 = store.createSession("c1", "req-1", "First");
     const s2 = store.createSession("c1", "req-2", "Second");
-    const s3 = store.createSession("c2", "req-3", "Other");
+    store.createSession("c2", "req-3", "Other");
     const c1Sessions = store.getAllSessions("c1");
     expect(c1Sessions).toHaveLength(2);
     expect(c1Sessions[0].id).toBe(s1.id);

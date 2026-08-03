@@ -17,6 +17,7 @@ from aios.core.adapters.base import AIProviderAdapter, ChatRequest, ChatResponse
 from aios.core.model_info import ModelInfo, CommercialStatus, AvailabilityStatus
 from aios.core.streaming_manager import StreamingManager
 from aios.core.timeout_retry import TimeoutConfig, call_with_timeout
+from aios.core.capability_inference import infer_capabilities, bool_from_inference, merge_into_modelinfo
 
 logger = structlog.get_logger(__name__)
 
@@ -102,6 +103,36 @@ def _classify_cerebras(mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
     return CommercialStatus.PAID, False
 
 
+def _classify_deepinfra(mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
+    """DeepInfra: free if per-token pricing fields are zero, otherwise paid.
+
+    DeepInfra's `/models` endpoint returns `input_cost_per_token` /
+    `output_cost_per_token` (or `per_token_costs`) per model when queried
+    with ``?include_costs=true``.  Fall back to the generic classifier when
+    those fields are absent.
+    """
+    pricing = raw.get("pricing", raw)
+    if isinstance(pricing, dict):
+        input_cost = (
+            pricing.get("input_cost_per_token")
+            or pricing.get("input_cost")
+            or pricing.get("per_token_costs", {}).get("input")
+        )
+        output_cost = (
+            pricing.get("output_cost_per_token")
+            or pricing.get("output_cost")
+            or pricing.get("per_token_costs", {}).get("output")
+        )
+        if input_cost is not None and output_cost is not None:
+            try:
+                is_free = float(input_cost) == 0.0 and float(output_cost) == 0.0
+                cs = CommercialStatus.FREE_TIER if is_free else CommercialStatus.PAID
+                return cs, is_free
+            except (ValueError, TypeError):
+                pass
+    return _generic_classify(mid, raw)
+
+
 def _classify_credit_based(mid: str, raw: dict) -> tuple[CommercialStatus, bool]:
     return CommercialStatus.CREDIT_BASED, False
 
@@ -132,10 +163,54 @@ _COMMERCIAL_POLICIES: dict[str, Any] = {
     "free_tier_not_free": _classify_free_tier_not_free,
     "mistral": _classify_mistral,
     "cerebras": _classify_cerebras,
+    "deepinfra": _classify_deepinfra,
     "credit_based": _classify_credit_based,
     "paid": _classify_paid,
     "generic": _generic_classify,
 }
+
+
+# ---------------------------------------------------------------------------
+# Capability extraction from raw provider metadata (W2)
+# ---------------------------------------------------------------------------
+
+def _extract_capabilities(mid: str, raw: dict) -> dict[str, bool]:
+    """Delegate to centralized inference module (client-facing bool API)."""
+    inferred = infer_capabilities(mid, raw)
+    return bool_from_inference(inferred)
+
+
+def _extract_deprecation(raw: dict) -> tuple[bool, AvailabilityStatus]:
+    """Detect deprecated/removed/preview/experimental from provider metadata.
+
+    OpenAI-compatible providers signal deprecation via ``deprecation`` /
+    ``deprecated`` fields or a ``status`` enum.  Returns (deprecated, availability).
+    """
+    status = raw.get("status")
+    if isinstance(status, str):
+        s = status.lower()
+        if s in ("deprecated", "deprecation"):
+            return True, AvailabilityStatus.DEPRECATED
+        if s in ("removed", "deleted"):
+            return True, AvailabilityStatus.REMOVED
+        if s in ("preview", "beta"):
+            return False, AvailabilityStatus.PREVIEW
+        if s in ("experimental", "research"):
+            return False, AvailabilityStatus.EXPERIMENTAL
+
+    dep = raw.get("deprecation")
+    if dep not in (None, "", "null"):
+        if isinstance(dep, bool):
+            return dep, AvailabilityStatus.DEPRECATED if dep else (False, AvailabilityStatus.AVAILABLE)
+        return True, AvailabilityStatus.DEPRECATED
+
+    dep2 = raw.get("deprecated")
+    if dep2 in (True, "true", "yes", "1"):
+        return True, AvailabilityStatus.DEPRECATED
+    if dep2 is False:
+        return False, AvailabilityStatus.AVAILABLE
+
+    return False, AvailabilityStatus.AVAILABLE
 
 
 class OpenAICompatibleAdapter(AIProviderAdapter):
@@ -165,6 +240,7 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
         meta = metadata or {}
         self._commercial_policy: str = meta.get("commercial_policy", "generic")
         self._discovery_strategy: str = meta.get("discovery_strategy", "openai_v1")
+        self._priority: int = int(meta.get("priority", 100))
         self._headers = {"Content-Type": "application/json"}
         if api_key:
             self._headers["Authorization"] = f"Bearer {api_key}"
@@ -180,6 +256,10 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
     @property
     def provider_name(self) -> str:
         return self._provider_name
+
+    @property
+    def priority(self) -> int:
+        return self._priority
 
     async def connect(self) -> ProviderStatus:
         return await self.health()
@@ -202,13 +282,16 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
         if strategy:
             return strategy(mid, raw)
         # Fallback: generic pricing inspection
-        return _generic_classify(raw)
+        return _generic_classify(mid, raw)
 
     async def list_models(self) -> list[ModelInfo]:
         # Use discovery_strategy from registry metadata instead of hardcoded provider_type
         if self._discovery_strategy == "lmstudio":
             return await self._list_lmstudio_models()
+        return await self._list_standard_models()
 
+    async def _list_standard_models(self) -> list[ModelInfo]:
+        """Standard OpenAI-compatible GET {base_url}/models discovery."""
         url = f"{self._base_url}/models"
         try:
             resp = await call_with_timeout(
@@ -272,17 +355,9 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
                         except (ValueError, TypeError):
                             pass
 
-                # OpenRouter: detect vision/reasoning from model metadata
-                arch = raw_dict.get("architecture", {})
-                modality = arch.get("modality", "") if isinstance(arch, dict) else ""
-                supports_vision = "image" in modality.lower() if modality else False
-
-                # Determine availability from OpenRouter's "status" field
-                avail_str = raw_dict.get("status", "available") if isinstance(raw_dict, dict) else "available"
-                try:
-                    availability = AvailabilityStatus(avail_str)
-                except ValueError:
-                    availability = AvailabilityStatus.AVAILABLE
+                # Capability extraction from raw provider metadata (W2)
+                caps = _extract_capabilities(mid, raw_dict)
+                deprecated, availability = _extract_deprecation(raw_dict)
 
                 model_info = ModelInfo(
                     id=mid,
@@ -293,10 +368,21 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
                     context_window=_get_ctx(raw_dict),
                     max_output_tokens=_get_max_out(raw_dict),
                     supports_streaming=True,
-                    supports_vision=supports_vision,
+                    supports_vision=caps["supports_vision"],
+                    supports_reasoning=caps["supports_reasoning"],
+                    supports_thinking=caps["supports_thinking"],
+                    supports_tools=caps["supports_tools"],
+                    supports_function_calling=caps["supports_function_calling"],
+                    supports_json=caps["supports_json"],
+                    supports_embeddings=caps["supports_embeddings"],
+                    supports_audio=caps["supports_audio"],
+                    supports_image_generation=caps["supports_image_generation"],
+                    supports_video=caps["supports_video"],
+                    supports_files=caps["supports_files"],
                     is_free=is_free,
                     commercial_status=commercial_status,
                     availability=availability,
+                    deprecated=deprecated,
                     pricing=pricing,
                     discovery_source="api",
                     raw_provider_metadata={k: v for k, v in raw_dict.items() if k not in ("id", "object")} if raw_dict else {},

@@ -26,30 +26,6 @@ const mockNode: MemoryNode = {
   status: "active",
 };
 
-function createConnectedNode(id: string, title: string): MemoryNode {
-  return {
-    id: { value: id, type: "test" },
-    type: "test",
-    subtype: "test:child",
-    title,
-    summary: "",
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    lastAccessed: Date.now(),
-    source: "test",
-    metadata: {},
-    tags: [],
-    importance: 0.5,
-    confidence: 0.5,
-    accessCount: 0,
-    pinned: false,
-    archived: false,
-    verified: false,
-    verificationMethod: "",
-    status: "active",
-  };
-}
-
 describe("MemoryInspector", () => {
   beforeEach(() => {
     resetMemoryStore();

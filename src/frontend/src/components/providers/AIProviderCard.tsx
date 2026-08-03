@@ -3,7 +3,6 @@ import ProviderStatusBadge from "./ProviderStatusBadge";
 import ProviderConfigurationDialog from "./ProviderConfigurationDialog";
 import { fetchApi } from "../../services/api";
 import type { ProviderInfo, Model } from "./types";
-import { COMMERCIAL_STATUS_LABELS } from "./types";
 
 interface AIProviderCardProps {
   provider: ProviderInfo;

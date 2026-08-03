@@ -1,6 +1,6 @@
 import type { CommandFooterProps } from "./types";
 
-function CommandFooter({ totalResults, selectedIndex, hasQuery }: CommandFooterProps) {
+function CommandFooter({ totalResults, hasQuery }: CommandFooterProps) {
   return (
     <div className="pr-cmd-footer" role="toolbar" aria-label="Command palette tips">
       <div className="pr-cmd-footer-tips">

@@ -1,17 +1,33 @@
+import { waitForReady } from "./statusStore";
+
 const isTauri = typeof window !== "undefined" && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
 const BACKEND_PORT = 8456;
 const API_BASE = isTauri
   ? `http://127.0.0.1:${BACKEND_PORT}/api/v1`
   : "/api/v1";
 
+const BYPASS_PATHS = new Set([
+  "/system/health",
+  "/system/readiness",
+  "/desktop/status",
+  "/desktop/status/history",
+]);
+
 export { API_BASE };
 
-export function fetchApi(path: string, init?: RequestInit): Promise<Response> {
-  // path should be like "/chat/messages" — no /api/v1 prefix
+async function gateFor(path: string): Promise<void> {
+  if (!BYPASS_PATHS.has(path)) {
+    await waitForReady();
+  }
+}
+
+export async function fetchApi(path: string, init?: RequestInit): Promise<Response> {
+  await gateFor(path);
   return fetch(`${API_BASE}${path}`, init);
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T = any>(path: string, options?: RequestInit): Promise<T> {
+  await gateFor(path);
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...options,

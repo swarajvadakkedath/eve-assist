@@ -40,7 +40,7 @@ function ResizableLayout({
     document.body.style.userSelect = "none";
   }, []);
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!dragging.current || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const newWidth = e.clientX - rect.left;

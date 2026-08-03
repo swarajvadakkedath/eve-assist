@@ -129,6 +129,11 @@ class AIProviderAdapter(ABC):
     def provider_name(self) -> str:
         """Human-readable name (e.g. 'OpenAI', 'Anthropic')."""
 
+    @property
+    def priority(self) -> int:
+        """Configured provider priority (higher = preferred). Default 100."""
+        return 100
+
     # -- Lifecycle ----------------------------------------------------------
 
     @abstractmethod

@@ -1,6 +1,6 @@
 import { useId } from "react";
 import type { HTMLAttributes } from "react";
-import type { MemoryNode, NodeSuperType } from "@/memory/core";
+import type { MemoryNode } from "@/memory/core";
 
 export interface MemoryCardProps extends HTMLAttributes<HTMLDivElement> {
   node: MemoryNode;
@@ -9,15 +9,6 @@ export interface MemoryCardProps extends HTMLAttributes<HTMLDivElement> {
   showMeta?: boolean;
   compact?: boolean;
 }
-
-const superTypeBadge: Record<NodeSuperType, string> = {
-  action: "mw-badge-action",
-  observation: "mw-badge-observation",
-  knowledge: "mw-badge-knowledge",
-  artifact: "mw-badge-artifact",
-  entity: "mw-badge-entity",
-  meta: "mw-badge-meta",
-};
 
 function formatTimestamp(ts: number): string {
   const diff = Date.now() - ts;

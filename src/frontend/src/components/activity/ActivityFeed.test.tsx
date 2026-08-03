@@ -64,7 +64,7 @@ describe("ActivityFeed", () => {
   });
 
   it("filters by capability prefix", () => {
-    render(<ActivityFeed sessions={sessions} filter="file" />);
+    render(<ActivityFeed sessions={sessions} filter="files" />);
     expect(screen.getByText("Running task")).toBeInTheDocument();
     expect(screen.getByText("Failed task")).toBeInTheDocument();
     expect(screen.queryByText("Completed task")).not.toBeInTheDocument();

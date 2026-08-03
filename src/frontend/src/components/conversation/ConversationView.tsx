@@ -8,7 +8,6 @@ import Composer from "./Composer";
 import type { TimelineEntry } from "./TimelineItem";
 import { fetchApi } from "../../services/api";
 import { getSessionStore, adaptBackendEvent, createCompletedEvent } from "../execution/session";
-import type { ExecutionSessionEvent } from "../execution/session";
 import { ExecutionInspector } from "../inspector";
 
 export interface ConversationViewProps {
@@ -33,7 +32,6 @@ function ConversationView({
 }: ConversationViewProps) {
   const internalConversationsRef = useRef<any[]>([]);
   const [internalState, setInternalState] = useState<ConversationState>(defaultState);
-  const eventSourceRef = useRef<EventSource | null>(null);
 
   const [customEntries, setCustomEntries] = useState<TimelineEntry[]>([]);
   const [, setSessionTick] = useState(0);
@@ -76,45 +74,6 @@ function ConversationView({
     }
   }, [fetchConversations, setState]);
 
-  const selectConversation = useCallback(async (id: string) => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-    setState((prev) => ({ ...prev, loading: true, messages: [], error: null }));
-    try {
-      const res = await fetchApi(`/chat/history/${id}`);
-      const data = await res.json();
-      setState((prev) => ({
-        ...prev,
-        activeId: id,
-        messages: data.messages || [],
-        loading: false,
-      }));
-    } catch (err) {
-      setState((prev) => ({ ...prev, error: "Failed to load history", loading: false }));
-    }
-  }, [setState]);
-
-  const deleteConversation = useCallback(async (id: string) => {
-    try {
-      await fetchApi(`/chat/conversation/${id}`, { method: "DELETE" });
-      setState((prev) => {
-        if (prev.activeId === id) {
-          return { ...prev, activeId: null, messages: [] };
-        }
-        return prev;
-      });
-      fetchConversations();
-    } catch (err) {
-      console.error("Failed to delete conversation", err);
-    }
-  }, [fetchConversations, setState]);
-
-  const renameConversation = useCallback((_id: string, _title: string) => {
-    // optimistic update handled by parent
-  }, []);
-
   const rebuildEntries = useCallback(() => {
     const store = sessionStoreRef.current;
     if (!state.activeId) {
@@ -122,24 +81,12 @@ function ConversationView({
       return;
     }
     const sessions = store.getAllSessions(state.activeId);
-    const entries: TimelineEntry[] = sessions.map(s => ({
+    const entries: TimelineEntry[] = sessions.map(session => ({
       type: "session" as const,
       session,
     }));
     setCustomEntries(entries);
   }, [state.activeId]);
-
-  const cancelStream = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-    setState((prev) => ({
-      ...prev,
-      streaming: false,
-      statusMessage: "",
-    }));
-  }, [setState]);
 
   const sendMessage = useCallback(async (content: string) => {
     const trimmed = content.trim();
@@ -158,6 +105,7 @@ function ConversationView({
         return;
       }
     }
+    if (!convId) return;
 
     currentRequestIdRef.current = `req-${Date.now()}`;
     activeSessionIdRef.current = null;

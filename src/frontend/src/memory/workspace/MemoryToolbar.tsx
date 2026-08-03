@@ -1,5 +1,5 @@
 import type { HTMLAttributes } from "react";
-import type { SortField, SortOrder, MemoryNode } from "@/memory/core";
+import type { SortField, SortOrder } from "@/memory/core";
 
 export type ViewMode = "grid" | "list";
 

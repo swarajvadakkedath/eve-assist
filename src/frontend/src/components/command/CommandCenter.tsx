@@ -8,17 +8,7 @@ import CommandFooter from "./CommandFooter";
 import CommandHistory from "./CommandHistory";
 import { useCommandStore } from "./useCommandStore";
 
-function buildPreview(item: CommandItem) {
-  return {
-    item,
-    description: item.description,
-    category: item.category,
-    shortcut: item.shortcut,
-    estimatedAction: item.name,
-  };
-}
-
-function CommandCenter({ workspaces, onClose, onNavigate, onSwitchWorkspace, activeWorkspaceId, defaultQuery }: CommandCenterProps) {
+function CommandCenter({ onClose, defaultQuery }: CommandCenterProps) {
   const store = useMemo(() => getCommandStore(), []);
   const registry = useMemo(() => getCommandRegistry(), []);
   const state = useCommandStore();
@@ -94,9 +84,7 @@ function CommandCenter({ workspaces, onClose, onNavigate, onSwitchWorkspace, act
     store.clearHistory();
   }, [store]);
 
-  const recent = useMemo(() => store.getRecentCommands(allCommands), [store, allCommands, state.recentCommands, state.pinnedCommands]);
   const hasQuery = state.query.trim().length > 0;
-
   return (
     <div className="pr-cmd-overlay" ref={paletteRef} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="pr-cmd-palette" role="dialog" aria-label="Command palette" aria-modal="true">

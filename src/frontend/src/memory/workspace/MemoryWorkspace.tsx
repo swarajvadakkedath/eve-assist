@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import type { HTMLAttributes } from "react";
 import type { MemoryNode } from "@/memory/core";
 import { getMemoryStore } from "@/memory/core";
 import { MemorySidebar, type SidebarSection } from "./MemorySidebar";
-import { MemoryExplorer, type ExplorerView, viewLabels } from "./MemoryExplorer";
+import { MemoryExplorer, type ExplorerView } from "./MemoryExplorer";
 import { MemoryInspector } from "./MemoryInspector";
 import { MemorySearch } from "./MemorySearch";
 import "./memory-workspace.css";
@@ -31,7 +31,6 @@ export function MemoryWorkspace({
 
   const stats = useMemo(() => {
     const s = storeRef.current.selectors.getStats();
-    const allNodes = storeRef.current.graph.getAllNodes();
     return { ...s, total: s.total };
   }, []);
 

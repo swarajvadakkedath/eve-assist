@@ -214,8 +214,7 @@ def _register_builtins() -> None:
 
     register(ProviderDefinition(
         provider_type="mistral",
-        display_name="Mistral",
-        default_endpoint="https://api.mistral.ai/v1",
+        display_name="Mistral",        default_endpoint="https://api.mistral.ai/v1",
         models_endpoint="/models",
         chat_endpoint="/chat/completions",
         auth_header="Authorization",
@@ -227,6 +226,23 @@ def _register_builtins() -> None:
         discovery_strategy="openai_v1",
         commercial_policy="mistral",
         icon="mistral",
+    ))
+
+    register(ProviderDefinition(
+        provider_type="deepinfra",
+        display_name="DeepInfra",
+        default_endpoint="https://api.deepinfra.com/v1/openai",
+        models_endpoint="/models",
+        chat_endpoint="/chat/completions",
+        auth_header="Authorization",
+        auth_prefix="Bearer ",
+        api_key_required=True,
+        needs_endpoint=False,
+        adapter_class="OpenAICompatibleAdapter",
+        openai_compatible=True,
+        discovery_strategy="openai_v1",
+        commercial_policy="deepinfra",
+        icon="deepinfra",
     ))
 
     register(ProviderDefinition(
@@ -291,7 +307,7 @@ def _register_builtins() -> None:
     register(ProviderDefinition(
         provider_type="huggingface",
         display_name="Hugging Face",
-        default_endpoint="https://api-inference.huggingface.co",
+        default_endpoint="https://router.huggingface.co/v1",
         models_endpoint="/models",
         chat_endpoint="/chat/completions",
         auth_header="Authorization",

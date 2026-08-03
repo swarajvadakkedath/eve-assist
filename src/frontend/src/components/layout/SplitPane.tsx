@@ -28,7 +28,7 @@ function SplitPane({
     document.body.style.userSelect = "none";
   }, [direction]);
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!dragging.current || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     let newSize: number;

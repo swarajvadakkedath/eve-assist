@@ -1,5 +1,3 @@
-import { useState, useEffect } from "react";
-
 interface PermissionRequest {
   id: string;
   tool_id: string;
@@ -13,14 +11,6 @@ interface PermissionDialogProps {
   onGrant: (id: string) => void;
   onDeny: (id: string) => void;
 }
-
-const levelLabels: Record<number, string> = {
-  0: "Safe",
-  1: "Low Risk",
-  2: "Medium Risk",
-  3: "High Risk",
-  4: "Critical",
-};
 
 export default function PermissionDialog({ request, onGrant, onDeny }: PermissionDialogProps) {
   return (

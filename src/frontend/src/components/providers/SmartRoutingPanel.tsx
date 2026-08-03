@@ -8,7 +8,7 @@ interface SmartRoutingPanelProps {
   onUpdate: () => void;
 }
 
-const ROUTING_CATEGORIES = [
+const FALLBACK_CATEGORIES = [
   { id: "general_chat", label: "General Chat", desc: "Most conversations, assistant responses" },
   { id: "coding", label: "Coding", desc: "Code generation, debugging, file operations" },
   { id: "vision", label: "Vision", desc: "Image analysis, OCR, screen understanding" },
@@ -37,6 +37,22 @@ export default function SmartRoutingPanel({ providers, onUpdate }: SmartRoutingP
   const [pendingPolicy, setPendingPolicy] = useState<CommercialPolicy | null>(null);
   const [diagnostics, setDiagnostics] = useState<any>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [categories, setCategories] = useState(FALLBACK_CATEGORIES);
+
+  useEffect(() => {
+    fetchApi("/routing/categories")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.categories && data.categories.length) {
+          setCategories(data.categories.map((c: any) => ({
+            id: c.id,
+            label: c.label || c.id,
+            desc: c.desc || (c.capabilities?.length ? `Requires: ${c.capabilities.join(", ")}` : ""),
+          })));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetchApi("/routing")
@@ -140,7 +156,7 @@ export default function SmartRoutingPanel({ providers, onUpdate }: SmartRoutingP
             Each category can use a different provider and model for optimal performance.
           </p>
 
-          {ROUTING_CATEGORIES.map((cat) => {
+          {categories.map((cat) => {
             const entry = routing.find((r) => r.id === cat.id);
             const selectedProvider = providers.find((p) => p.id === entry?.provider_id);
             const enabledModels = (selectedProvider?.models || []).filter((m) => m.enabled);

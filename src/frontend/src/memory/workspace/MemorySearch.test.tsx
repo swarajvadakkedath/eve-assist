@@ -1,31 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { describe, it, expect, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemorySearch } from "./MemorySearch";
 import { setMemoryStore, resetMemoryStore, MemoryStore } from "@/memory/core";
-import type { MemoryNode, SearchQuery, SearchResult } from "@/memory/core";
+import type { NodeInput } from "@/memory/core";
 
-function createNode(id: string, title: string): MemoryNode {
+function createNode(id: string, title: string): NodeInput {
   return {
-    id: { value: id, type: "test" },
+    id,
     type: "test",
     subtype: "test:sub",
     title,
-    summary: "",
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    lastAccessed: Date.now(),
     source: "test",
-    metadata: {},
-    tags: [],
-    importance: 0.5,
-    confidence: 0.5,
-    accessCount: 0,
-    pinned: false,
-    archived: false,
-    verified: false,
-    verificationMethod: "",
-    status: "active",
   };
 }
 

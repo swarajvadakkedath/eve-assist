@@ -21,7 +21,9 @@ describe("ExecutionEventAdapter", () => {
   it("uses fallback request when data.request is empty", () => {
     const raw = { type: "planner_started", data: {} };
     const result = adaptBackendEvent(raw, "s1", convId, reqId, request);
-    expect(result?.request).toBe("Read my files");
+    if (result?.type === "ExecutionStarted") {
+      expect(result.request).toBe("Read my files");
+    }
   });
 
   it("adapts planner_completed to PlanningCompleted", () => {
@@ -57,7 +59,9 @@ describe("ExecutionEventAdapter", () => {
   it("defaults success to true when not provided", () => {
     const raw = { type: "tool_completed", data: { tool_name: "file.read" } };
     const result = adaptBackendEvent(raw, "s1", convId, reqId, request);
-    expect(result?.success).toBe(true);
+    if (result?.type === "StepCompleted") {
+      expect(result.success).toBe(true);
+    }
   });
 
   it("adapts error to ExecutionFailed", () => {

@@ -52,6 +52,7 @@ from aios.core.routing_types import (
     RouteCandidate,
     RoutingTrace,
     RoutingExecutionMetadata,
+    CATEGORY_CAPABILITIES,
     required_capabilities_from_category,
 )
 
@@ -160,12 +161,18 @@ class FallbackMetadata:
 # Routing categories
 # ---------------------------------------------------------------------------
 
+_CATEGORY_LABELS = {
+    "general_chat": "General Chat",
+    "coding": "Coding",
+    "vision": "Vision",
+    "reasoning": "Reasoning",
+    "fallback": "Fallback",
+}
+
 ROUTING_CATEGORIES = [
-    {"id": "general_chat", "label": "General Chat", "capabilities": ["supports_streaming"]},
-    {"id": "coding", "label": "Coding", "capabilities": ["supports_tools", "supports_function_calling", "supports_reasoning"]},
-    {"id": "vision", "label": "Vision", "capabilities": ["supports_vision", "supports_streaming"]},
-    {"id": "reasoning", "label": "Reasoning", "capabilities": ["supports_reasoning", "supports_thinking"]},
-    {"id": "fallback", "label": "Fallback", "capabilities": []},
+    {"id": cat_id, "label": _CATEGORY_LABELS.get(cat_id, cat_id), "capabilities": caps}
+    for cat_id, caps in CATEGORY_CAPABILITIES.items()
+    if cat_id in _CATEGORY_LABELS
 ]
 
 
@@ -251,9 +258,11 @@ def _build_candidates(
                 provider_instance_id=instance_id,
                 model_id=model.id,
                 adapter=adapter,
+                context_window=model.context_window,
                 supports_streaming=model.supports_streaming,
                 supports_vision=model.supports_vision,
                 supports_reasoning=model.supports_reasoning,
+                supports_thinking=model.supports_thinking,
                 supports_tools=model.supports_tools,
                 supports_function_calling=model.supports_function_calling,
                 supports_json=model.supports_json,
@@ -265,6 +274,7 @@ def _build_candidates(
                 latency=model.latency or (health.latency_ms if health else 0.0),
                 quality=model.quality,
                 speed=model.speed,
+                priority=getattr(adapter, "priority", 100),
             )
             candidates.append(candidate)
 
@@ -355,6 +365,12 @@ def _rank_candidates(
         # Capability quality (average of quality + speed)
         quality_score = (c.quality + c.speed) / 20.0
 
+        # Provider priority (higher = preferred). Normalized to [0,1].
+        priority_score = min(1.0, max(0.0, c.priority / 100.0))
+
+        # Context window (larger = preferred). Normalized log-scale to [0,1].
+        ctx_score = min(1.0, max(0.0, c.context_window / 200000.0))
+
         # Strategy-specific weighting
         if strategy == RoutingStrategy.PERFORMANCE:
             c.score = (
@@ -375,8 +391,17 @@ def _rank_candidates(
                 + quality_score * 0.3
                 + (1.0 / (health_score + 1)) * 0.2
             )
+        elif strategy == RoutingStrategy.PRIORITY:
+            c.score = (
+                priority_score * 0.5
+                + quality_score * 0.3
+                + (1.0 / (health_score + 1)) * 0.2
+            )
         else:
             c.score = quality_score
+
+        # Tie-breakers: prefer higher-priority provider and larger context
+        c.score += priority_score * 0.02 + ctx_score * 0.01
 
         # Penalty for degraded health
         if health_score > 0:
@@ -479,7 +504,7 @@ class SmartRouter:
         self,
         health_monitor: HealthMonitor | None = None,
         strategy: RoutingStrategy = RoutingStrategy.PERFORMANCE,
-        commercial_policy: CommercialPolicy = CommercialPolicy.ALLOW_PAID,
+        commercial_policy: CommercialPolicy = CommercialPolicy.FREE_ONLY,
     ):
         self._adapters: dict[str, AIProviderAdapter] = {}
         self._provider_models: dict[str, list[ModelInfo]] = {}
@@ -927,6 +952,10 @@ class SmartRouter:
         # Levels 3-7: Cross-provider failover by commercial tier
         # Build remaining candidates (not yet attempted)
         remaining = [c for c in ranked if f"{c.provider_instance_id}/{c.model_id}" not in attempted]
+
+        # Safety cap: never evaluate more than MAX_CANDIDATE_ATTEMPTS candidates.
+        if len(attempted) + len(remaining) > self.MAX_CANDIDATE_ATTEMPTS:
+            remaining = remaining[: max(0, self.MAX_CANDIDATE_ATTEMPTS - len(attempted))]
 
         # Group by commercial tier
         free = [c for c in remaining if CommercialStatus(c.commercial_status) == CommercialStatus.FREE]

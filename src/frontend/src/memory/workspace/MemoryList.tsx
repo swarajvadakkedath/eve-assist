@@ -1,7 +1,7 @@
 import type { HTMLAttributes } from "react";
 import type { MemoryNode } from "@/memory/core";
 
-export interface MemoryListProps extends HTMLAttributes<HTMLDivElement> {
+export interface MemoryListProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSelect"> {
   nodes: readonly MemoryNode[];
   selectedId?: string;
   onSelect?: (node: MemoryNode) => void;

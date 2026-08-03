@@ -235,9 +235,11 @@ class RouteCandidate:
     adapter: Any = None                   # AIProviderAdapter instance
 
     # Model metadata
+    context_window: int = 4096
     supports_streaming: bool = True
     supports_vision: bool = False
     supports_reasoning: bool = False
+    supports_thinking: bool = False
     supports_tools: bool = False
     supports_function_calling: bool = False
     supports_json: bool = False
@@ -388,31 +390,30 @@ class RoutingExecutionMetadata:
 # Capability requirement helper
 # ---------------------------------------------------------------------------
 
-# Map from routing category capabilities to ModelInfo fields
-CAPABILITY_MAP = {
-    "chat": [],
-    "vision": ["supports_vision"],
+# Single source of truth: routing category id → required ModelInfo capability fields.
+# Both SmartRouter.ROUTING_CATEGORIES and the API derive from this map.
+CATEGORY_CAPABILITIES: dict[str, list[str]] = {
+    "general_chat": ["supports_streaming"],
+    "coding": ["supports_tools", "supports_function_calling", "supports_reasoning"],
+    "vision": ["supports_vision", "supports_streaming"],
     "reasoning": ["supports_reasoning", "supports_thinking"],
-    "coding": ["supports_tools", "supports_function_calling"],
+    "fallback": [],
+    # Additional capability categories (for feature routing / dedup across consumers)
+    "chat": [],
     "tool_calling": ["supports_tools", "supports_function_calling"],
     "structured_output": ["supports_json"],
     "streaming": ["supports_streaming"],
     "audio": ["supports_audio"],
 }
 
+CAPABILITY_MAP = CATEGORY_CAPABILITIES
+
 
 def capabilities_for_category(category: str) -> list[str]:
     """Return ModelInfo field names required for a routing category."""
-    return CAPABILITY_MAP.get(category, [])
+    return list(CATEGORY_CAPABILITIES.get(category, []))
 
 
 def required_capabilities_from_category(category: str) -> list[str]:
     """Return capability strings from a routing category id."""
-    cat_caps = {
-        "general_chat": ["supports_streaming"],
-        "coding": ["supports_tools", "supports_function_calling", "supports_reasoning"],
-        "vision": ["supports_vision", "supports_streaming"],
-        "reasoning": ["supports_reasoning", "supports_thinking"],
-        "fallback": [],
-    }
-    return cat_caps.get(category, [])
+    return list(CATEGORY_CAPABILITIES.get(category, []))

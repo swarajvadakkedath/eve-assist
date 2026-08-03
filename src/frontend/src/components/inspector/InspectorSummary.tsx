@@ -34,7 +34,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 function InspectorSummary({ session }: InspectorSummaryProps) {
   const terminal = isSessionTerminal(session.status);
-  const completedCount = session.steps.filter(s => s.status === "completed" || s.status === "success").length;
+  const completedCount = session.steps.filter(s => s.status === "completed").length;
   const failedCount = session.steps.filter(s => s.status === "failed").length;
 
   return (

@@ -64,6 +64,10 @@ class AiosSettings(BaseSettings):
     # Context Engine
     context_poll_interval: float = 2.0
 
+    # Provider health + model refresh intervals (seconds; None disables the loop)
+    provider_health_interval: float | None = 120.0
+    model_refresh_interval: float | None = 3600.0
+
     # Planner
     planner_step_timeout: int = 30
     planner_max_steps: int = 20

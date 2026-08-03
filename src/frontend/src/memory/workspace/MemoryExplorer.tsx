@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import type { HTMLAttributes } from "react";
-import type { MemoryNode, MemoryNode as MemoryNodeType, SortField, SortOrder, SearchQuery, NodeSuperType } from "@/memory/core";
+import type { MemoryNode as MemoryNodeType, SortField, SortOrder, NodeSuperType } from "@/memory/core";
 import { getMemoryStore, NodeTypeConstants } from "@/memory/core";
 import { MemoryToolbar, type ViewMode } from "./MemoryToolbar";
 import { MemoryBreadcrumbs, type BreadcrumbItem } from "./MemoryBreadcrumbs";
@@ -11,7 +11,7 @@ import { MemoryTimeline } from "./MemoryTimeline";
 
 export type ExplorerView = "recent" | "pinned" | "explorer" | "knowledge" | "artifacts" | "people" | "browser" | "voice" | "vision" | "collections" | "tags" | "timeline";
 
-export interface MemoryExplorerProps extends HTMLAttributes<HTMLDivElement> {
+export interface MemoryExplorerProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSelect"> {
   view: ExplorerView;
   searchQuery?: string;
   onSelect?: (node: MemoryNodeType) => void;

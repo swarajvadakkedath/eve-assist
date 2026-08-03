@@ -1,4 +1,4 @@
-import type { ExecutionProgress as ProgressData, ProgressType } from "./types";
+import type { ExecutionProgress as ProgressData } from "./types";
 
 export interface ExecutionProgressProps {
   progress: ProgressData;

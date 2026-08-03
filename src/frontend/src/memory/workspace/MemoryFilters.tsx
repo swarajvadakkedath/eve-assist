@@ -1,4 +1,3 @@
-import { useId } from "react";
 import type { HTMLAttributes } from "react";
 import type { NodeSuperType, NodeStatus } from "@/memory/core";
 
@@ -11,7 +10,7 @@ export interface MemoryFiltersState {
   dateTo: number | undefined;
 }
 
-export interface MemoryFiltersProps extends HTMLAttributes<HTMLDivElement> {
+export interface MemoryFiltersProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSelect" | "onChange"> {
   filters: MemoryFiltersState;
   onChange: (filters: MemoryFiltersState) => void;
   availableTags: readonly string[];
@@ -39,11 +38,6 @@ export function MemoryFilters({
   className = "",
   ...rest
 }: MemoryFiltersProps) {
-  const superTypeId = useId();
-  const statusId = useId();
-  const tagId = useId();
-  const pinnedId = useId();
-
   const classes = ["mw-filters-panel", className].filter(Boolean).join(" ");
 
   const toggleSuperType = (value: NodeSuperType) => {

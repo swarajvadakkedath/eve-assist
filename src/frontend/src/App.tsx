@@ -19,10 +19,12 @@ import ObservationPanel from "./components/vision/ObservationPanel";
 import LivePreview from "./components/vision/LivePreview";
 import ImageUpload from "./components/vision/ImageUpload";
 import ActivityCenter from "./components/activity/ActivityCenter";
-import ManageProvidersPage from "./components/providers/ManageProvidersPage";
+import AIOperationsCenter from "./components/aio/AIOperationsCenter";
+import { startStatusPolling, stopStatusPolling, useBackendStatus } from "./services/statusStore";
 
 const workspaces: WorkspaceDefinition[] = [
   { id: "conversation", label: "Chat", icon: "\u{1F4AC}", component: ConversationView },
+  { id: "aio", label: "AI Operations", icon: "\u{1F4CA}", component: AIOperationsCenter },
   { id: "activity", label: "Activity", icon: "\u{1F4CB}", component: ActivityCenter },
 ];
 
@@ -32,10 +34,9 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [visionOpen, setVisionOpen] = useState(false);
   const [visionMode, setVisionMode] = useState<"observation" | "live" | "upload" | null>(null);
-  const [providersOpen, setProvidersOpen] = useState(false);
+  const { ready } = useBackendStatus();
 
   const handleVoiceToggle = async () => {
     try {
@@ -57,7 +58,7 @@ function App() {
   const handleNavigate = (action: string, payload?: string) => {
     switch (action) {
       case "settings": setSettingsOpen(true); break;
-      case "providers": setProvidersOpen(true); break;
+      case "providers": setActiveWorkspace("aio"); break;
       case "plugins": setPluginsOpen(true); break;
       case "vision": setVisionOpen(true); setVisionMode("observation"); break;
       case "theme": setTheme((t) => (t === "dark" ? "light" : "dark")); break;
@@ -73,6 +74,7 @@ function App() {
       case "panel": window.dispatchEvent(new CustomEvent("aios:toggle-panel", { detail: { panel: payload } })); break;
       case "command": window.dispatchEvent(new CustomEvent("aios:command", { detail: { command: payload } })); break;
       case "url":
+        if (!payload) break;
         try {
           const parsed = new URL(payload);
           if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') break;
@@ -94,11 +96,16 @@ function App() {
   );
 
   useEffect(() => {
-    const handleOpenProviders = () => {
-      setSettingsOpen(false);
-      setProvidersOpen(true);
+    const handleOpenAio = () => {
+      setActiveWorkspace("aio");
     };
-    window.addEventListener("aios:open-providers", handleOpenProviders);
+    window.addEventListener("aios:open-aio", handleOpenAio);
+
+    const handleSwitchWorkspace = (e: Event) => {
+      const ws = (e as CustomEvent).detail;
+      if (typeof ws === "string") setActiveWorkspace(ws);
+    };
+    window.addEventListener("aios:switch-workspace", handleSwitchWorkspace);
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === ",") {
@@ -122,17 +129,27 @@ function App() {
         setVisionOpen((v) => !v);
         setVisionMode("observation");
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "A") {
+        e.preventDefault();
+        setActiveWorkspace("aio");
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("aios:open-providers", handleOpenProviders);
+      window.removeEventListener("aios:open-aio", handleOpenAio);
+      window.removeEventListener("aios:switch-workspace", handleSwitchWorkspace);
     };
   }, []);
 
   useEffect(() => {
     voiceService.connect().catch(() => {});
     return () => { voiceService.disconnect(); };
+  }, []);
+
+  useEffect(() => {
+    startStatusPolling();
+    return () => stopStatusPolling();
   }, []);
 
   return (
@@ -151,58 +168,71 @@ function App() {
           />
           <VoiceButton />
           <NotificationCenter />
-          <button className="btn-icon" onClick={() => setToolsOpen(true)} title="Tool Center (Ctrl+T)">
-            🛠
-          </button>
-          <button className="btn-icon" onClick={() => setPluginsOpen(true)} title="Plugin Manager (Ctrl+P)">
-            ■
-          </button>
-          <button className="btn-icon" onClick={() => openPalette()} title="Commands (Ctrl+K)">
-            ⌘
-          </button>
-          <button className="btn-icon" onClick={() => setSettingsOpen(true)} title="Settings (Ctrl+,)">
-            ⚙
-          </button>
+          {!ready ? null : (
+            <>
+              <button className="btn-icon" onClick={() => setActiveWorkspace("aio")} title="AI Operations (Ctrl+Shift+A)">
+                📊
+              </button>
+              <button className="btn-icon" onClick={() => setToolsOpen(true)} title="Tool Center (Ctrl+T)">
+                🛠
+              </button>
+              <button className="btn-icon" onClick={() => setPluginsOpen(true)} title="Plugin Manager (Ctrl+P)">
+                ■
+              </button>
+              <button className="btn-icon" onClick={() => openPalette()} title="Commands (Ctrl+K)">
+                ⌘
+              </button>
+              <button className="btn-icon" onClick={() => setSettingsOpen(true)} title="Settings (Ctrl+,)">
+                ⚙
+              </button>
+            </>
+          )}
         </div>
       </div>
-      <WorkspaceRegistry workspaces={workspaces} activeId={activeWorkspace} />
-      {renderPalette}
-      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
-      {toolsOpen && <ToolCenterPanel onClose={() => setToolsOpen(false)} />}
-      {pluginsOpen && <PluginManagerPanel onClose={() => setPluginsOpen(false)} />}
-
-      {visionOpen && visionMode === "observation" && (
-        <div className="vision-panel-overlay" onClick={() => { setVisionOpen(false); setVisionMode(null); }}>
-          <div onClick={(e) => e.stopPropagation()}>
-            <ObservationPanel onClose={() => { setVisionOpen(false); setVisionMode(null); }} />
-          </div>
+      {!ready ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, opacity: 0.6 }}>
+          <span style={{ fontSize: "1.1rem" }}>Starting EVE...</span>
         </div>
-      )}
-      {visionOpen && visionMode === "live" && (
-        <div className="vision-panel-overlay" onClick={() => { setVisionOpen(false); setVisionMode(null); }}>
-          <div onClick={(e) => e.stopPropagation()}>
-            <LivePreview onClose={() => { setVisionOpen(false); setVisionMode(null); }} />
-          </div>
-        </div>
-      )}
-      {providersOpen && <ManageProvidersPage onClose={() => setProvidersOpen(false)} />}
-      {visionOpen && visionMode === "upload" && (
-        <div className="vision-panel-overlay" onClick={() => { setVisionOpen(false); setVisionMode(null); }}>
-          <div onClick={(e) => e.stopPropagation()}>
-            <div className="vision-upload-wrapper">
-              <ImageUpload
-                onImageSelected={async (file) => {
-                  try {
-                    const data = await api.vision.analyzeUpload(file);
-                    console.log("Upload analysis:", data);
-                  } catch (e) {
-                    console.error("Upload error", e);
-                  }
-                }}
-              />
+      ) : (
+        <>
+          <WorkspaceRegistry workspaces={workspaces} activeId={activeWorkspace} />
+          {renderPalette}
+          {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+          {toolsOpen && <ToolCenterPanel onClose={() => setToolsOpen(false)} />}
+          {pluginsOpen && <PluginManagerPanel onClose={() => setPluginsOpen(false)} />}
+          {visionOpen && visionMode === "observation" && (
+            <div className="vision-panel-overlay" onClick={() => { setVisionOpen(false); setVisionMode(null); }}>
+              <div onClick={(e) => e.stopPropagation()}>
+                <ObservationPanel onClose={() => { setVisionOpen(false); setVisionMode(null); }} />
+              </div>
             </div>
-          </div>
-        </div>
+          )}
+          {visionOpen && visionMode === "live" && (
+            <div className="vision-panel-overlay" onClick={() => { setVisionOpen(false); setVisionMode(null); }}>
+              <div onClick={(e) => e.stopPropagation()}>
+                <LivePreview onClose={() => { setVisionOpen(false); setVisionMode(null); }} />
+              </div>
+            </div>
+          )}
+          {visionOpen && visionMode === "upload" && (
+            <div className="vision-panel-overlay" onClick={() => { setVisionOpen(false); setVisionMode(null); }}>
+              <div onClick={(e) => e.stopPropagation()}>
+                <div className="vision-upload-wrapper">
+                  <ImageUpload
+                    onImageSelected={async (file) => {
+                      try {
+                        const data = await api.vision.analyzeUpload(file);
+                        console.log("Upload analysis:", data);
+                      } catch (e) {
+                        console.error("Upload error", e);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

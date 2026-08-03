@@ -28,6 +28,8 @@ describe("ActivityCenter", () => {
     store.applyEvent({
       type: "ExecutionCompleted",
       sessionId: id,
+      success: true,
+      summary: "Completed",
       durationMs: 5000,
     });
     render(<ActivityCenter />);

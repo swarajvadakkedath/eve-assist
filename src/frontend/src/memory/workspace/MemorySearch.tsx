@@ -1,10 +1,10 @@
-import { useState, useCallback, useMemo, useId, useEffect, useRef } from "react";
+import { useState, useCallback, useId, useEffect, useRef } from "react";
 import type { HTMLAttributes } from "react";
 import type { MemoryNode, SearchQuery, SearchResult } from "@/memory/core";
 import { getMemoryStore } from "@/memory/core";
 import { MemoryList } from "./MemoryList";
 
-export interface MemorySearchProps extends HTMLAttributes<HTMLDivElement> {
+export interface MemorySearchProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSelect"> {
   onSelect?: (node: MemoryNode) => void;
   onClose?: () => void;
   placeholder?: string;

@@ -7,7 +7,7 @@ export interface TimelineGroup {
   nodes: MemoryNode[];
 }
 
-export interface MemoryTimelineProps extends HTMLAttributes<HTMLDivElement> {
+export interface MemoryTimelineProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSelect"> {
   nodes: readonly MemoryNode[];
   onSelect?: (node: MemoryNode) => void;
   emptyMessage?: string;

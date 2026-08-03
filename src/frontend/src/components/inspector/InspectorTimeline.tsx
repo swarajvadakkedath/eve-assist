@@ -33,7 +33,7 @@ function InspectorTimeline({ session }: InspectorTimelineProps) {
               className={`pr-inspector-timeline-node pr-inspector-timeline-step pr-inspector-timeline-${step.status}`}
             >
               <div className={`pr-inspector-timeline-icon pr-inspector-timeline-icon-step pr-inspector-timeline-icon-step-${step.status}`}>
-                {step.status === "running" ? "{RUN}" : step.status === "completed" || step.status === "success" ? "{OK}" : step.status === "failed" ? "{FAIL}" : "{STEP}"}
+                {step.status === "running" ? "{RUN}" : step.status === "completed" ? "{OK}" : step.status === "failed" ? "{FAIL}" : "{STEP}"}
               </div>
               <div className="pr-inspector-timeline-content">
                 <span className="pr-inspector-timeline-label">{step.label}</span>

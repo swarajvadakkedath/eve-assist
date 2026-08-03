@@ -1,70 +1,73 @@
 ## Objective
-- Redesign the entire AI provider system from single-model-per-provider to Provider→Models→Capabilities hierarchy, with multi-model selection, model discovery, per-conversation model switching, and provider+model routing.
+- Complete EVE v1.2.2 "Production AI Ecosystem": integrate all 9 configured providers via the already-built Universal Provider Framework, add DeepInfra, dynamic model/capability discovery, commercial policy engine (FREE_ONLY default), SmartRouter capability routing, health engine, multi-account, auto-refresh, fallback chains, performance, regression, and docs.
 
 ## Important Details
-- Every provider (Google, Groq, OpenAI, Anthropic, etc.) exposes multiple models; the old `default_model` field forced one model per provider, which is architecturally wrong.
-- New data model: `Provider` holds `models: list[Model]` (dicts with capabilities) instead of a `default_model` string + a list of model-id strings.
-- `Model` dataclass carries 20+ capability flags (`supportsVision`, `supportsReasoning`, `supportsFunctionCalling`, `isFree`, `speed`, `quality`, `cost_per_1k_*`, etc.) and an `enabled` toggle.
-- **Static `MODEL_CATALOG`** in `model_catalog.py` covers all known models for 16 provider types (Google, OpenAI, Anthropic, Groq, Mistral, Cerebras, Ollama, plus dynamic providers like OpenRouter).
-- **Dynamic discovery**: `fetch_models()` queries the provider API, then merges discovered model IDs with the static catalog to preserve capability metadata + user `enabled` state.
-- **Migration**: `_migrate_models()` in `ProviderManager._load()` converts old-format model lists (`list[str]`) to new format (`list[dict]`) on startup automatically.
-- **Routing** now stores `model_id` alongside `provider_id` per category (`general_chat`, `coding`, `vision`, `reasoning`, `fallback`).
-- `register_with_router()` passes the first enabled model as the default for each provider.
-- New API endpoints: `PUT /providers/{id}/models` (toggle model), `POST /providers/{id}/models/refresh` (re-fetch from API).
-- Google provider httpx timeout reduced from 120s→30s to prevent streaming hangs.
-- Frontend `types.ts` created with `Model`, `ProviderInfo`, `RoutingEntry`, `ModelFilters` interfaces matching backend `Model.to_dict()` keys (camelCase).
-- `api.ts` provider helpers (`api.providers.*`, `api.routing.*`) added.
-- All backend files compile and import successfully (verified via `py_compile` + `import` tests).
-
-## Bug Diagnosis — July 25 2026
-### CRITICAL — Auth middleware blocking ALL requests (FIXED)
-- **Root cause**: `aios/api/app.py:313-321` — `auth_middleware` required `Authorization: Bearer <token>` header on every request (except health/status). The frontend (`api.ts`) has **no mechanism** to obtain or send the auth token — no token fetch, no header injection, no IPC bridge. Every API call returned `401 Unauthorized`.
-- **Impact**: All frontend features broken — Settings (`/api/v1/desktop/settings`), Chat (`/api/v1/chat/*`), Voice (`/api/v1/voice/*`), Providers (`/api/v1/providers`), Vision (`/api/v1/vision/*`).
-- **Why it appears to "hang forever"**: The `SettingsPanel` calls `fetchApi("/desktop/settings").then(r => r.json())`. On 401, `r.json()` RESOLVES (not rejects) with `{"detail":"Unauthorized"}`. The next `.then()` sets `settings = {detail: "Unauthorized"}`, which is truthy, so the panel renders with broken undefined data (not "Loading..." or error). User described this as "hangs forever".
-- **Fix**: Removed `auth_middleware` entirely (lines 313-321 in original `app.py`). `AuthManager` class kept for the `/api/v1/auth/token` endpoint (still reachable from localhost). CORS middleware unchanged.
-- **Verification**: Lifespan completes in 0.64s. All endpoints return `200 OK`: `/api/v1/desktop/status`, `/api/v1/settings`, `/api/v1/providers`, `/api/v1/chat/conversations`.
+- Framework already exists and is fully implemented — do NOT redesign it, use it
+- 9 configured providers: openai, google, groq, openrouter, ollama, deepinfra, cloudflare, huggingface, nvidia
+- `deepinfra` was entirely absent from codebase (no registry/catalog/adapter); researched: OpenAI-compatible at `https://api.deepinfra.com/v1/openai`, Bearer auth, `GET /models` + native `/models/list`, namespaced model IDs
+- Confirmed decisions (4 answers): keep dedicated adapters (OpenAI/Google/Groq/Ollama/Cloudflare); FREE_ONLY persisted default for ALL installs (existing users get safe default, can opt into paid); no per-conversation manual switching (out of scope); embeddings = expose models + capability summary only, no embeddings routing subsystem
+- Audit found critical bugs to fix: split-brain HealthMonitor (`SmartRouter()` and `ProviderManager()` each create own monitor — breaks routing/health API consistency); adapter bugs `_list_standard_models` never defined (referenced ~L370) and `_generic_classify(raw)` wrong arity (L205); FastAPI route shadowing — `/api/v1/providers/{provider_id}` declared before `/providers/models/free`, `/providers/health`, `/providers/types/{type}/models`, `/providers/reorder`; default CommercialPolicy.ALLOW_PAID not persisted; background health/refresh loops never started in production
+- SmartRouter already capability-driven (vision/reasoning/tools/function_calling/json/streaming + latency + health + commercial policy), no model-name routing; 6 capability flags on RouteCandidate
+- HealthMonitor tracks latency/failures/timeouts/rate-limits/quota; `start_background_check(adapters_fn, interval)` exists (health_monitor.py)
+- Multi-account already works as multiple provider instances with independent adapters/keys/health
+- All backend changes must mirror to `desktop/src-tauri/backend/aios/` with parity verified
+- `settings` (AiosSettings) now has `provider_health_interval` (120s) + `model_refresh_interval` (3600s) — W7
+- pytest quirk on this machine (Python 3.14 + pytest 9.1.1): full-suite / `tests/unit` aggregate runs abort with `INTERNALERROR` (`'E:\Eve_Ai' is not in the subpath of 'E:\Eve_Ai'`, a `bestrelpath` bug). PRE-EXISTING (confirmed via git stash), unrelated to code. Workaround: run test files individually or run `tests/provider_framework` as a group. `tests/unit` = 1581 pass individually across 56 files; only `test_office_tools.py` fails (missing optional deps openpyxl/pdfplumber — pre-existing).
 
 ## Work State
 ### Completed
-- **Backend `model_catalog.py`** — `Model` dataclass with `to_dict()`/`from_dict()`, `MODEL_CATALOG` dict with 60+ known models across 16 provider types, `get_catalog_models()`, `merge_models()`, `model_from_catalog()` helpers.
-- **Backend `provider_manager.py`** — stripped `default_model`/`models` from `PROVIDER_META`; updated `add_provider()`, `update_provider()`, `fetch_models()`; added `toggle_model()`, `refresh_models()`, `_merge_models_to_provider()`, `_migrate_models()`; updated `_get_chat_model()`, `register_with_router()`, `set_routing()`.
-- **Backend `api/providers.py`** — added `ToggleModelRequest`, `model_updates`/`models_enabled` params, `model_id` in `RoutingEntry`, new endpoints `PUT /providers/{id}/models` and `POST /providers/{id}/models/refresh`.
-- **Frontend `types.ts`** — `Model`, `ProviderInfo`, `RoutingEntry`, `ModelFilters`, `ROUTING_CATEGORIES`.
-- **Frontend `api.ts`** — typed provider helpers: `api.providers.*` (list, get, add, update, remove, test, testAll, setDefault, reorder, models), `api.routing.*` (get, set).
-- **Frontend `ConversationHeader.tsx`** — provider+model dropdown pairs for per-conversation switching.
-- **Frontend `AIProviderCard.tsx`** — model checkboxes with toggle, "Show free only" filter, Refresh Models button.
-- **Frontend `ModelSelector.tsx`** — search bar + capability filter buttons (Free, Vision, Reasoning, Recommended, 128K+, Fast) with model detail display.
-- **Frontend `SmartRoutingPanel.tsx`** — provider+model dropdown pairs per routing category.
-- **Frontend `ProviderConfigurationDialog.tsx`** — removed `default_model` field (models managed via card). Now pure API key + endpoint config.
-- **Frontend `ManageProvidersPage.tsx`** — imports `ProviderInfo` from `types.ts` instead of inline interface.
-- **BUG FIX: Auth middleware removed** (`aios/api/app.py`) — was blocking ALL frontend requests with 401.
+- Provider framework (v1.2.1) fully implemented and tested: `provider_registry.py` (16 builtin ProviderDefinitions), `provider_factory.py` (`create_adapter` + native_map + TYPE_CHECKING circular-import fix), config-driven `OpenAICompatibleAdapter`, `onboarding.py` + `POST /providers/onboard`, frontend metadata-driven (types.ts, AddProviderDialog icon-from-API, ProviderConfigurationDialog metadata, api.ts `.onboard()`), `tests/provider_framework/` (registry 29, factory 18, onboarding 6, contract 96), `PROVIDER_FRAMEWORK.md`. 152/152 tests pass.
+- **W0 (split-brain + adapter bugs + route shadowing) — DONE**:
+  - `api/app.py`: single shared `health_monitor` passed to both `SmartRouter` and `ProviderManager`; `health_monitor.start_background_check(lambda: provider_manager._adapters, interval=...)` started after `register_all_adapters()`; `from aios.core.health_monitor import HealthMonitor` import.
+  - `openai_compatible_adapter.py`: fixed `_generic_classify(mid, raw)` arity (L205); extracted missing `_list_standard_models()` method — `list_models()` now delegates (`lmstudio` → `_list_lmstudio_models()`, else `_list_standard_models()`).
+  - `api/providers.py`: reordered routes so literals `GET /providers/models/free`, `GET /providers/types/{type}/models`, `GET /providers/health`, `PUT /providers/reorder` register BEFORE `/providers/{provider_id}`.
+- **W1 (DeepInfra integration) — DONE**:
+  - `provider_registry.py`: added `deepinfra` ProviderDefinition (default_endpoint `https://api.deepinfra.com/v1/openai`, OpenAICompatibleAdapter, openai_v1, commercial_policy `deepinfra`, icon `deepinfra`).
+  - `openai_compatible_adapter.py`: added `_classify_deepinfra` (reads `input_cost_per_token`/`output_cost_per_token` / `per_token_costs`, falls back to `_generic_classify`) + registered in `_COMMERCIAL_POLICIES`.
+  - `model_catalog.py`: added `deepinfra` key with 10 models (Llama 3.3 70B Turbo, DeepSeek V3/R1, Qwen 2.5 72B, Llama 3.1 70B/8B, Mixtral 8x7B, Mistral 7B, Phind CodeLlama 34B, GTE Large embeddings w/ `isEmbeddingModel`).
+  - Tests updated 16→17 (`test_registry.py`, `test_onboarding.py`). **153/153 provider framework tests pass.**
+  - `AddProviderDialog.tsx`: added `deepinfra: 🌊` emoji fallback.
+- Baseline established: provider_framework 153/153; tests/unit 1581 pass individually (56/57 files).
 
 ### Active
-- **ChatWindow/Conversation wiring** — ConversationHeader created but not rendered. Need `provider_id`/`model_id` fields in backend `Conversation` model (`chat.py`) and ChatWindow state to wire the switcher.
-- **CSS styling** — new component classes (`.conversation-header`, `.ms-wrapper`, `.ms-filters`, `.ms-item`, `.pr-provider-card-models`, `.pr-model-checkbox`, `.pr-routing-row-controls`) need styles added.
-- **AddProviderDialog.tsx** — still passes `default_model` param (no-op).
-- **ConnectionTester.tsx** — reads `default_model` from provider response (now `null` after migration). Should read first enabled model instead.
+- W2: capability extraction (reasoning/tools/json/embeddings/image/audio) + deprecation handling in OpenAICompatibleAdapter discovery — DONE: `_extract_capabilities(mid, raw)` + `_extract_deprecation(raw)` wired into `_list_standard_models()` (OpenRouter architecture.modality, HF pipeline_tag + inference tags, explicit supports_* fields, ID heuristics); `test_capability_extraction.py` (25 tests). 184/184 provider framework tests pass.
+- W3: SmartRouter default FREE_ONLY + persist commercial policy in routing.json + migration — DONE: default changed to `CommercialPolicy.FREE_ONLY`; `_save_routing()` writes `{"commercial_policy": ..., "routing": [...]}`; `_load()` migrates legacy list format → dict with FREE_ONLY; manager `get_commercial_policy()`/`set_commercial_policy()` added; API endpoints route through manager (persistence works); `test_commercial_policy.py` (6 tests). 184/184 pass.
+- W4: context_window on RouteCandidate, priority weighting, MAX_CANDIDATE_ATTEMPTS, dedup capability maps — DONE: `context_window` field added to RouteCandidate + populated in `_build_candidates`; `priority` propagated via adapter metadata (factory passes `definition.priority`, `base.priority` default 100, `OpenAICompatibleAdapter.priority` property); ranking adds PRIORITY strategy + priority/context tie-breakers; `MAX_CANDIDATE_ATTEMPTS` (20) now caps remaining-candidate evaluation in `_resolve_auto`; capability maps deduped — `routing_types.CATEGORY_CAPABILITIES` is single source, `CAPABILITY_MAP` aliased to it, `smart_router.ROUTING_CATEGORIES` derives capabilities from it, `_CATEGORY_LABELS` for display; `test_routing_enhancements.py` (9 tests). 193/193 pass.
+- W5: health score + success_rate in HealthMonitor — DONE: `ProviderHealth` gains `total_checks`/`successful_checks`/`success_rate`/`health_score`; `_recompute_score()` blends success-rate (60%) + uptime recency (40%), zeroed for invalid_key/quota/unreachable; `to_dict()` includes new fields; background check wiring already done in W0 (`start_background_check` with settings interval). `test_health_score.py` (11 tests). 204/204 pass.
+- W6: `/routing/categories` endpoint + metadata-driven config dialog + supports_organization fix — DONE: new `GET /api/v1/routing/categories` returns `smart_router.ROUTING_CATEGORIES` (id/label/capabilities derived from `CATEGORY_CAPABILITIES`); `SmartRoutingPanel.tsx` now fetches categories from API (fallback list preserved, desc derived from capabilities when absent); `ProviderConfigurationDialog.tsx` prop type expanded to include `supports_organization`/`has_models_endpoint`/`api_key_required`/`icon` (fixes TS type error at line 52). `test_routing_categories.py` (7 tests). 211/211 pass.
+- W7: background model refresh + parallel discovery — DONE: `refresh_all_models(concurrency_limit=4)` invalidates each provider's model cache and fetches concurrently via `asyncio.gather` + semaphore, tolerates per-provider failures; `start_background_refresh(interval)`/`stop_background_refresh()`/`is_background_refresh_running()` with `_refresh_task` tracked and cancelled in `shutdown()`; `AiosSettings` gains `provider_health_interval` (120s) + `model_refresh_interval` (3600s); `app.py` starts both loops in lifespan. `test_model_refresh.py` (6 tests). 217/217 pass.
+- W8: fallback chain test — DONE: `test_fallback_chain.py` (12 tests) exercises AUTO fallback hierarchy via `RouterHarness` (fake adapters + HealthMonitor `record_failure(OFFLINE)` to simulate primary down): level 0 preferred, level 1 same-model-alternate-instance, level 2 same-provider-alternate-model, level 3 FREE, level 4 FREE_TIER, level 5 CREDIT_BASED, level 6 LOCAL, level 7 PAID (ALLOW_PAID only, blocked → `PaidRoutingDisabledError` otherwise), full-chain fallthrough, no-preference ranked-best, STRICT raises `RouteUnavailableError`. 229/229 pass.
+- W9: full regression + desktop mirror + parity — DONE: all W0-W8 source changes mirrored to `desktop/src-tauri/backend/aios/` (12 backend files + 2 legacy test files), byte-identical parity verified via `git diff --no-index`, desktop copy compiles + imports cleanly (17 providers, deepinfra, FREE_ONLY, categories, settings intervals). Full regression: provider_framework 229/229; `src/backend/aios/tests` 363/364 (only pre-existing `test_github_models_headers_set` fails, confirmed broken at HEAD); legacy `test_quota_aware_routing.py`/`test_routing_policy.py` updated for W3 FREE_ONLY default (model helpers default `commercial_status=CommercialStatus.FREE`; two FREE_TIER failover tests use explicit NO_DIRECT_PAID). All tests/unit provider/routing files pass. Frontend `tsc --noEmit` clean for changed providers components (pre-existing errors elsewhere only).
+- W10: `EVE_AI_ECOSYSTEM_REPORT.md` — DONE: full ecosystem report written (`EVE_AI_ECOSYSTEM_REPORT.md`) covering 17 providers, deepinfra, capability extraction, commercial policy engine, SmartRouter categories/fallback, health engine, background refresh, audit fixes, desktop parity, and test summary (229/229 + 363/364).
+- **W2 LIVE-VALIDATION REMEDIATION — DONE**: live routing surfaced 3 production bugs, all fixed + regression-tested:
+  1. `ModelInfo.from_old_format` computed `cs` but never passed `commercial_status`/`is_free`/`pricing` into constructor → every stored model reloaded as UNKNOWN → FREE_ONLY (persisted default) rejected ALL routes (`NoEligibleRouteError`). Fixed: pass computed fields + preserve modern `commercialStatus`/`isFree`/`pricing`/`speed`/`quality`/`latency`/`recommended`/`deprecated`/`experimental`/`enabled`/`discovery_source`/`provider_type`/`provider_instance_id`.
+  2. `_fetch_and_merge` only filled catalog keys ABSENT from discovered dict → catalog `isFree: true` for `gemini-2.5-flash` never applied (discovered default `isFree: false`). Fixed: catalog fills `commercialStatus`/`isFree` when discovery reports non-informative `unknown`.
+  3. `RouteCandidate` lacked `supports_thinking` (+ `_build_candidates` didn't copy it) → reasoning category (requires `supports_reasoning` AND `supports_thinking`) had zero eligible candidates. Fixed: field added to RouteCandidate + populated.
+  - Also fixed `_token_match` digit-boundary (family name + version suffix): `qwen` now matches `qwen2.5-coder:7b` → `supports_tools=True`; added `deepseek-coder`/`deepseek-r1` to tool family.
+  - Live validation (`tools/validate_w2_capabilities.py`, real 9-provider install): 966 models refreshed (0 dups); 106 reasoning+thinking, 643 tools, 652 fc; reasoning spot-checks (o1/o3-mini/deepseek-r1/gemini-2.5/kimi-k2/qwq) all `reasoning=True thinking=True`; coding spot-checks (gpt-4o/llama-3.3/deepseek-chat/qwen2.5-coder:7b) all `tools=True fc=True`; SmartRouter AUTO/FREE_ONLY resolves `reasoning`/`coding`/`general_chat` → `google/gemini-2.5-flash` (FREE, all flags). Tri-state sanity: explicit False preserved.
+  - Tests: `test_w2_regression.py` now 29 (tri-state, metadata priority, merge semantics, RouteCandidate supports_thinking, digit-boundary token match, from_old_format commercial round-trip). **provider_framework 258/258 pass**; `src/backend/aios/tests` 363/364 (only pre-existing `test_github_models_headers_set`). Desktop mirror re-copied for 10 changed/new files (incl. new `capability_inference.py`), byte-parity verified via `git diff --no-index`, desktop copy compiles + imports cleanly.
 
 ### Blocked
-- Cannot start the full backend from within the tool (PowerShell Start-Process killed by sandbox). Use `py_compile` + `import` tests.
+- Cannot start the full backend from within the tool (PowerShell Start-Process killed by sandbox). Use `py_compile` + `import` tests. Full `pytest tests/` aggregate run also blocked by pre-existing INTERNALERROR path bug (see Important Details).
 
 ## Next Move
-1. Wire ConversationHeader into ChatWindow.tsx by passing `currentProviderId`/`currentModelId` (from conversation state) and `onProviderChange`/`onModelChange` handlers.
-2. Add CSS for conversation-header, ms-*, pr-model-checkbox, pr-routing-row-controls classes.
-3. Update AddProviderDialog.tsx to remove `default_model` from POST body.
-4. Update ConnectionTester.tsx to log first enabled model instead of `default_model`.
-5. Add `provider_id`/`model_id` fields to backend Conversation model in `chat.py`.
+- v1.2.2 work + W2 live-validation remediation complete (W0–W10 + remediation). Next release steps: run `npm run build` + manual smoke test of the running app, then tag v1.2.2 (only with explicit approval).
 
 ## Relevant Files
-- `src/backend/aios/core/model_catalog.py`: Model dataclass, MODEL_CATALOG (60+ models, 16 provider types).
-- `src/backend/aios/core/provider_manager.py`: Full provider lifecycle + model management + routing.
-- `src/backend/aios/api/providers.py`: Route definitions — CRUD, test, fetch/toggle/refresh models, routing.
-- `src/frontend/src/components/providers/types.ts`: Shared TS interfaces (ProviderInfo, Model, RoutingEntry).
-- `src/frontend/src/components/providers/AIProviderCard.tsx`: Model checkboxes with toggle + Refresh.
-- `src/frontend/src/components/providers/ModelSelector.tsx`: Search + capability filter buttons.
-- `src/frontend/src/components/providers/SmartRoutingPanel.tsx`: Provider+model per category.
-- `src/frontend/src/components/providers/ManageProvidersPage.tsx`: Main page using ProviderInfo from types.
-- `src/frontend/src/components/providers/ProviderConfigurationDialog.tsx`: API key + endpoint form (no model).
-- `src/frontend/src/components/chat/ConversationHeader.tsx`: Per-conversation provider/model switcher.
-- `src/frontend/src/services/api.ts`: Provider + routing API helpers.
-- `src/backend/aios/core/providers/google_provider.py`: httpx timeout 120→30s.
+- `src/backend/aios/api/app.py`: shared HealthMonitor (split-brain fixed), `start_background_check` + background model refresh wired in lifespan.
+- `src/backend/aios/api/providers.py`: route shadowing fixed (literals before `{provider_id}`), `GET /routing/categories`, commercial-policy endpoints through manager.
+- `src/backend/aios/core/adapters/openai_compatible_adapter.py`: `_list_standard_models` added, `_generic_classify` arity fixed, `_classify_deepinfra` added, `_COMMERCIAL_POLICIES` map, `_extract_capabilities`/`_extract_deprecation`, `_list_lmstudio_models`, priority property.
+- `src/backend/aios/core/provider_registry.py`: 17 builtins now (deepinfra added), `register/get/all/all_as_dicts`, ProviderDefinition fields.
+- `src/backend/aios/core/provider_factory.py`: `create_adapter()` + native_map, OpenAICompatible metadata dict (commercial_policy/discovery_strategy/extra_headers/priority).
+- `src/backend/aios/core/smart_router.py`: `__init__` (health_monitor, strategy, commercial_policy), FREE_ONLY default, PRIORITY strategy, MAX_CANDIDATE_ATTEMPTS, 6 capability flags on RouteCandidate, fallback hierarchy levels 0-7, `ROUTING_CATEGORIES`.
+- `src/backend/aios/core/provider_manager.py`: `__init__` (config_dir, smart_router, health_monitor, model_cache, streaming_manager), `_save`, `_save_routing` (dict format + migration), `refresh_all_models` (parallel), `start_background_refresh`, `get/set_commercial_policy`, shutdown.
+- `src/backend/aios/core/health_monitor.py`: `check_all`, `start_background_check`, ProviderHealth success_rate/health_score scoring.
+- `src/backend/aios/core/routing_types.py`: `CATEGORY_CAPABILITIES` single source (CAPABILITY_MAP aliased), RouteCandidate context_window, fallback reasons, CommercialPolicy.
+- `src/backend/aios/core/model_catalog.py`: static enrichment catalog, now 17 provider keys incl. deepinfra, `get_catalog_models`/`merge_models`/`model_from_catalog`.
+- `src/backend/aios/core/model_info.py`: canonical ModelInfo (20+ capability flags, context_window, max_output_tokens).
+- `src/backend/aios/config/settings.py`: `provider_health_interval` (120s) + `model_refresh_interval` (3600s).
+- `src/frontend/src/components/providers/`: types.ts, ManageProvidersPage, ProviderConfigurationDialog (metadata-driven, supports_organization fix), AddProviderDialog (deepinfra icon), AIProviderCard, SmartRoutingPanel (categories from API).
+- `src/frontend/src/services/api.ts`: provider + routing + onboard helpers.
+- `tests/provider_framework/`: registry/factory/onboarding/contract + W2-W8 test files (capability_extraction, commercial_policy, routing_enhancements, health_score, routing_categories, model_refresh, fallback_chain).
+- `desktop/src-tauri/backend/aios/`: mirror target for all backend changes.
+- `EVE_AI_ECOSYSTEM_REPORT.md`: full ecosystem report for v1.2.2.

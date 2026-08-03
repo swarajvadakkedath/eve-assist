@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { HTMLAttributes } from "react";
-import type { MemoryNode, MemoryEdge, MemoryGraphStats } from "@/memory/core";
+import type { MemoryNode, MemoryEdge } from "@/memory/core";
 import { getMemoryStore } from "@/memory/core";
 import { MemoryPreview } from "./MemoryPreview";
 import { MemoryActions } from "./MemoryActions";
@@ -44,11 +44,6 @@ export function MemoryInspector({
   const store = useMemo(() => getMemoryStore(), []);
 
   const edges = useMemo(() => store.graph.getConnectedEdges(node.id), [store.graph, node.id]);
-
-  const allEdges = useMemo(() => [
-    ...edges.outgoing,
-    ...edges.incoming,
-  ], [edges]);
 
   const outgoingNeighbors = useMemo(
     () => store.graph.getOutgoingNeighbors(node.id),

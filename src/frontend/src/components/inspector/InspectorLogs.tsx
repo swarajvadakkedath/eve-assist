@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import type { ExecutionSession, SessionLogEntry } from "../execution/session/types";
+import type { ExecutionSession } from "../execution/session/types";
 
 export interface InspectorLogsProps {
   session: ExecutionSession;

@@ -33,7 +33,7 @@ class TestOnboardingFields:
     def test_all_registered_providers(self):
         """Every registered provider should have onboarding fields."""
         options = list_onboarding_options()
-        assert len(options) == 16
+        assert len(options) == 17
         for opt in options:
             f = get_onboarding_fields(opt["id"])
             assert f is not None, f"{opt['id']} missing onboarding fields"
@@ -44,7 +44,7 @@ class TestOnboardingOptions:
 
     def test_count(self):
         options = list_onboarding_options()
-        assert len(options) == 16
+        assert len(options) == 17
 
     def test_has_required_fields(self):
         options = list_onboarding_options()

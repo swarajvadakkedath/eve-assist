@@ -1,5 +1,5 @@
 export { default as CommandCenter } from "./CommandCenter";
-export { default as CommandPalette, useCommandPalette } from "./CommandPalette";
+export { useCommandPalette } from "./CommandPalette";
 export { default as CommandInput } from "./CommandInput";
 export { default as CommandResults } from "./CommandResults";
 export { default as CommandItemRow } from "./CommandItemRow";

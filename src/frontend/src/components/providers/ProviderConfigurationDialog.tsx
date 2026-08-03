@@ -17,7 +17,16 @@ interface ProviderData {
 
 interface ProviderConfigurationDialogProps {
   provider: ProviderData;
-  providerType?: { id: string; name: string; needs_endpoint: boolean; default_endpoint: string };
+  providerType?: {
+    id: string;
+    name: string;
+    needs_endpoint: boolean;
+    default_endpoint: string;
+    has_models_endpoint?: boolean;
+    api_key_required?: boolean;
+    supports_organization?: boolean;
+    icon?: string | null;
+  };
   onSave: (data: ProviderData) => void;
   onClose: () => void;
 }

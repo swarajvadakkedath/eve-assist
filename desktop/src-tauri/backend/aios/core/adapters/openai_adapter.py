@@ -18,6 +18,7 @@ from aios.core.timeout_retry import (
     retry_with_backoff,
     ProviderTimeoutError,
 )
+from aios.core.capability_inference import infer_capabilities, bool_from_inference
 
 logger = structlog.get_logger(__name__)
 
@@ -95,6 +96,9 @@ class OpenAIAdapter(AIProviderAdapter):
             )
             models = []
             for m in resp.data:
+                raw = {"owned_by": m.owned_by if hasattr(m, "owned_by") else ""}
+                inferred = infer_capabilities(m.id, raw, "openai")
+                caps = bool_from_inference(inferred)
                 models.append(ModelInfo(
                     id=m.id,
                     display_name=m.id,
@@ -104,13 +108,18 @@ class OpenAIAdapter(AIProviderAdapter):
                     context_window=128000,
                     max_output_tokens=16384,
                     supports_streaming=True,
-                    supports_tools=True,
-                    supports_json=True,
-                    supports_function_calling=True,
+                    supports_tools=caps["supports_tools"],
+                    supports_json=caps["supports_json"],
+                    supports_function_calling=caps["supports_function_calling"],
+                    supports_reasoning=caps["supports_reasoning"],
+                    supports_thinking=caps["supports_thinking"],
                     commercial_status=CommercialStatus.PAID,
                     availability=AvailabilityStatus.AVAILABLE,
                     discovery_source="api",
-                    metadata={"owned_by": m.owned_by if hasattr(m, "owned_by") else ""},
+                    metadata={
+                        "owned_by": m.owned_by if hasattr(m, "owned_by") else "",
+                        **caps,
+                    },
                 ))
             return models
         except Exception as e:

@@ -1,21 +1,21 @@
-"""Tests for ProviderRegistry — verifies all 16 builtin providers."""
+"""Tests for ProviderRegistry — verifies all 17 builtin providers."""
 
 import pytest
 from aios.core.provider_registry import get, all, all_as_dicts, register, ProviderDefinition
 
 
 class TestBuiltinRegistrations:
-    """Verify the 16 built-in providers are registered on import."""
+    """Verify the 17 built-in providers are registered on import."""
 
-    def test_all_16_registered(self):
+    def test_all_17_registered(self):
         defs = all()
-        assert len(defs) == 16
+        assert len(defs) == 17
 
     @pytest.mark.parametrize("provider_type", [
         "google", "openai", "anthropic", "ollama", "groq",
         "cohere", "cloudflare", "mistral", "cerebras", "openrouter",
         "github_models", "huggingface", "lm_studio", "nvidia",
-        "openai_compatible", "custom",
+        "openai_compatible", "custom", "deepinfra",
     ])
     def test_provider_registered(self, provider_type):
         d = get(provider_type)
@@ -31,7 +31,7 @@ class TestBuiltinRegistrations:
 
     def test_openai_compatible_adapters(self):
         """OpenAI-compatible providers should use OpenAICompatibleAdapter."""
-        compat_types = ["mistral", "cerebras", "openrouter", "github_models",
+        compat_types = ["mistral", "cerebras", "deepinfra", "openrouter", "github_models",
                         "huggingface", "lm_studio", "nvidia", "openai_compatible", "custom"]
         for pt in compat_types:
             d = get(pt)
@@ -72,7 +72,7 @@ class TestBuiltinRegistrations:
     def test_as_dicts(self):
         """all_as_dicts should return serializable dicts."""
         dicts = all_as_dicts()
-        assert len(dicts) == 16
+        assert len(dicts) == 17
         for d in dicts:
             assert "id" in d
             assert "name" in d

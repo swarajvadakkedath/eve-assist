@@ -62,12 +62,14 @@ class FakeAdapter:
 
 
 def make_model(model_id: str, enabled: bool = True, provider_id: str = "p1") -> ModelInfo:
+    from aios.core.model_info import CommercialStatus
     return ModelInfo(
         id=model_id,
         display_name=model_id,
         provider_id=provider_id,
         provider_name="Test Provider",
         enabled=enabled,
+        commercial_status=CommercialStatus.FREE,
     )
 
 

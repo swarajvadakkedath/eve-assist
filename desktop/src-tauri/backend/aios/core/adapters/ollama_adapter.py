@@ -13,6 +13,7 @@ from aios.core.adapters.base import AIProviderAdapter, ChatRequest, ChatResponse
 from aios.core.model_info import ModelInfo, CommercialStatus, AvailabilityStatus
 from aios.core.streaming_manager import StreamingManager
 from aios.core.timeout_retry import TimeoutConfig, call_with_timeout
+from aios.core.capability_inference import infer_capabilities, bool_from_inference
 
 logger = structlog.get_logger(__name__)
 
@@ -61,6 +62,14 @@ class OllamaAdapter(AIProviderAdapter):
             for m in data.get("models", []):
                 name = m.get("name", "")
                 details = m.get("details", {})
+                raw = {
+                    "modified_at": m.get("modified_at", ""),
+                    "size": m.get("size", 0),
+                    "parameter_size": details.get("parameter_size", ""),
+                    "quantization": details.get("quantization_level", ""),
+                }
+                inferred = infer_capabilities(name, raw, "ollama")
+                caps = bool_from_inference(inferred)
                 model_info = ModelInfo(
                     id=name,
                     display_name=name,
@@ -70,18 +79,16 @@ class OllamaAdapter(AIProviderAdapter):
                     context_window=m.get("context_length", 8192) or 8192,
                     max_output_tokens=4096,
                     supports_streaming=True,
-                    supports_tools=True,
-                    supports_json=True,
+                    supports_tools=caps["supports_tools"],
+                    supports_json=caps["supports_json"],
+                    supports_function_calling=caps["supports_function_calling"],
+                    supports_reasoning=caps["supports_reasoning"],
+                    supports_thinking=caps["supports_thinking"],
                     is_free=True,
                     commercial_status=CommercialStatus.LOCAL,
                     availability=AvailabilityStatus.AVAILABLE,
                     discovery_source="api",
-                    metadata={
-                        "modified_at": m.get("modified_at", ""),
-                        "size": m.get("size", 0),
-                        "parameter_size": details.get("parameter_size", ""),
-                        "quantization": details.get("quantization_level", ""),
-                    },
+                    metadata={**caps, **raw},
                 )
                 models.append(model_info)
 

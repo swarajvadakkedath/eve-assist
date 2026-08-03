@@ -106,7 +106,7 @@ def make_model(
     provider_id: str = "p1",
     provider_type: str = "",
     enabled: bool = True,
-    commercial_status: CommercialStatus = CommercialStatus.UNKNOWN,
+    commercial_status: CommercialStatus = CommercialStatus.FREE,
     availability: AvailabilityStatus = AvailabilityStatus.AVAILABLE,
     supports_streaming: bool = True,
     supports_vision: bool = False,
@@ -335,7 +335,7 @@ class TestAutoMultiAccountFailover:
     @pytest.mark.asyncio
     async def test_google_a_quota_b_healthy_same_model(self):
         """Google A quota exhausted → Google B with same model."""
-        router = SmartRouter()
+        router = SmartRouter(commercial_policy=CommercialPolicy.NO_DIRECT_PAID)
         ga = FakeAdapter("google-a")
         gb = FakeAdapter("google-b")
         router.register_adapter("google-a", ga)
@@ -1209,7 +1209,7 @@ class TestConversationPreferenceRoundTrip:
 
         conv = Conversation(provider_id="google-b", model_id="gemini-2.5-flash")
 
-        router = SmartRouter()
+        router = SmartRouter(commercial_policy=CommercialPolicy.NO_DIRECT_PAID)
         ga = FakeAdapter("google-a")
         gb = FakeAdapter("google-b")
         router.register_adapter("google-a", ga)

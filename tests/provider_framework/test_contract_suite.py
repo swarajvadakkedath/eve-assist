@@ -20,6 +20,7 @@ INSTANTIABLE = [
     ("cloudflare", {"api_key": "fake"}),
     ("mistral", {"api_key": "fake"}),
     ("cerebras", {"api_key": "fake"}),
+    ("deepinfra", {"api_key": "fake"}),
     ("openrouter", {"api_key": "fake"}),
     ("github_models", {"api_key": "fake"}),
     ("huggingface", {"api_key": "fake"}),

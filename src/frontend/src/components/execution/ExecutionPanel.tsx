@@ -104,7 +104,6 @@ export default function ExecutionPanel({ executionId }: { executionId: string | 
   if (!executionId || !execution) return null;
 
   const isRunning = execution.status === "running" || execution.status === "planning";
-  const isTerminal = ["completed", "failed", "cancelled"].includes(execution.status);
   const progressPct = progress?.percentage || 0;
 
   return (

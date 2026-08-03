@@ -1,4 +1,4 @@
-import type { CommandItem, CommandProvider, CommandCategory, CommandResultType } from "./types";
+import type { CommandItem, CommandProvider } from "./types";
 
 function fuzzyMatch(text: string, query: string): boolean {
   const lower = text.toLowerCase();

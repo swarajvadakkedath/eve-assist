@@ -1,5 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
-import type { CommandItem } from "./types";
+import { useEffect, useState, useCallback } from "react";
 import { getCommandStore } from "./CommandStore";
 import { getCommandRegistry } from "./CommandRegistry";
 import CommandCenter from "./CommandCenter";
@@ -20,7 +19,6 @@ export function useCommandPalette(
 ) {
   const [open, setOpen] = useState(false);
   const [defaultQuery, setDefaultQuery] = useState<string | undefined>();
-  const storeRef = useRef(getCommandStore());
 
   const initializeCommands = useCallback(() => {
     const registry = getCommandRegistry();
@@ -105,6 +103,15 @@ export function useCommandPalette(
         resultType: "open-panel",
         shortcut: "Mod+,",
         action: () => onNavigate?.("panel", "settings"),
+      },
+      {
+        id: "switch-aio",
+        name: "AI Operations",
+        description: "Open AI Operations Center",
+        category: "workspace",
+        resultType: "open-workspace",
+        shortcut: "Mod+Shift+A",
+        action: () => onNavigate?.("workspace", "aio"),
       },
       {
         id: "help",

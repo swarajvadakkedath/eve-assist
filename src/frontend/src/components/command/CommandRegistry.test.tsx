@@ -2,19 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { getCommandRegistry } from "./CommandRegistry";
 import { getCommandStore } from "./CommandStore";
-import { useCommandPalette } from "./CommandPalette";
 import CommandCenter from "./CommandCenter";
 import type { CommandItem } from "./types";
-
-function TestHarness({ defaultQuery }: { defaultQuery?: string }) {
-  const { renderPalette } = useCommandPalette(
-    [{ id: "home", label: "Home" }],
-    () => {},
-    () => {},
-    "home",
-  );
-  return <>{renderPalette}</>;
-}
 
 describe("CommandRegistry", () => {
   beforeEach(() => {

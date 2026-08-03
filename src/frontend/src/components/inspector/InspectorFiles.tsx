@@ -13,8 +13,6 @@ interface FileGroup {
 
 function InspectorFiles({ session }: InspectorFilesProps) {
   const { metadata, steps } = session;
-  const hasFiles = metadata.filesCreated > 0 || metadata.filesRead > 0
-    || metadata.filesModified > 0 || metadata.filesDeleted > 0;
 
   const groups: FileGroup[] = [
     { label: "Created", count: metadata.filesCreated, icon: "+", className: "pr-inspector-file-created" },

@@ -27,6 +27,7 @@ const PROVIDER_ICONS: Record<string, string> = {
   cerebras: "\u2B50",
   github_models: "\uD83D\uDCBB",
   huggingface: "\uD83D\uDCD8",
+  deepinfra: "\uD83C\uDF0A",
   ollama: "\uD83E\uDD16",
   lm_studio: "\uD83C\uDFAD",
   openai_compatible: "\u2699",

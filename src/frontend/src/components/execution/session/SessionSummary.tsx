@@ -1,16 +1,9 @@
 import type { SessionResult } from "./types";
 
 export interface SessionSummaryProps {
-  result: SessionResult;
+  result?: SessionResult;
   durationMs?: number;
 }
-
-const fileIcons: Record<string, string> = {
-  created: "+",
-  read: "\u2192",
-  modified: "~",
-  deleted: "-",
-};
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -21,6 +14,7 @@ function formatDuration(ms: number): string {
 }
 
 function SessionSummary({ result, durationMs }: SessionSummaryProps) {
+  if (!result) return null;
   const duration = durationMs || result.durationMs;
 
   return (

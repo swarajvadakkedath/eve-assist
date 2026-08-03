@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import type { ExecutionSession } from "./types";
-import { isSessionTerminal, shouldAutoCollapse } from "./types";
+import { isSessionTerminal } from "./types";
 import ExecutionCard from "../ExecutionCard";
 import SessionSummary from "./SessionSummary";
 import SessionLogs from "./SessionLogs";
@@ -73,7 +73,7 @@ function ExecutionSessionCard({ session, onInspect }: ExecutionSessionCardProps)
   const store = getSessionStore();
   const terminal = isSessionTerminal(session.status);
 
-  const handleToggle = useCallback((expanded: boolean) => {
+  const handleToggle = useCallback(() => {
     store.toggleCollapse(session.id);
   }, [store, session.id]);
 

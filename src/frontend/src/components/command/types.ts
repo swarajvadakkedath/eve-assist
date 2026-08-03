@@ -1,5 +1,3 @@
-import type { ComponentType, ReactNode } from "react";
-
 export type CommandCategory =
   | "app"
   | "workspace"
@@ -103,7 +101,7 @@ export interface CommandInputProps {
   onChange: (value: string) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   placeholder?: string;
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  inputRef: React.RefObject<HTMLInputElement>;
 }
 
 export interface CommandResultsProps {

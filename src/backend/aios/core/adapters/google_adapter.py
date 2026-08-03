@@ -13,6 +13,7 @@ from aios.core.adapters.base import AIProviderAdapter, ChatRequest, ChatResponse
 from aios.core.model_info import ModelInfo
 from aios.core.streaming_manager import StreamingManager
 from aios.core.timeout_retry import TimeoutConfig, call_with_timeout, ProviderTimeoutError
+from aios.core.capability_inference import infer_capabilities, bool_from_inference
 
 logger = structlog.get_logger(__name__)
 
@@ -70,6 +71,9 @@ class GoogleAdapter(AIProviderAdapter):
                 name = m.get("name", "")
                 model_id = name.split("/")[-1] if "/" in name else name
                 supported = m.get("supportedGenerationMethods", [])
+                raw = {"name": name}
+                inferred = infer_capabilities(model_id, raw, "google")
+                caps = bool_from_inference(inferred)
                 models.append(ModelInfo(
                     id=model_id,
                     display_name=m.get("displayName", model_id),
@@ -78,12 +82,14 @@ class GoogleAdapter(AIProviderAdapter):
                     context_window=1048576,
                     max_output_tokens=8192,
                     supports_streaming=True,
-                    supports_vision="vision" in model_id.lower() or "gemini" in model_id.lower(),
+                    supports_vision=caps["supports_vision"] or "vision" in model_id.lower() or "gemini" in model_id.lower(),
                     supports_tools=True,
                     supports_json=True,
                     supports_function_calling=True,
+                    supports_reasoning=caps["supports_reasoning"],
+                    supports_thinking=caps["supports_thinking"],
                     supports_system_prompt=True,
-                    metadata={"raw_name": name, "methods": supported},
+                    raw_provider_metadata={"raw_name": name, "methods": supported},
                 ))
             return models
         except Exception as e:

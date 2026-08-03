@@ -2,7 +2,7 @@ import type { HTMLAttributes } from "react";
 import type { MemoryNode } from "@/memory/core";
 import { MemoryCard } from "./MemoryCard";
 
-export interface MemoryGridProps extends HTMLAttributes<HTMLDivElement> {
+export interface MemoryGridProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSelect"> {
   nodes: readonly MemoryNode[];
   selectedId?: string;
   onSelect?: (node: MemoryNode) => void;

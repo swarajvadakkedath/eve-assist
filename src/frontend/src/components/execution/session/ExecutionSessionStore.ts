@@ -1,4 +1,4 @@
-import type { ExecutionSession, ExecutionStep, SessionLogEntry, SessionMetadata, SessionResult, ExecutionSessionEvent, ExecutionSessionStatus } from "./types";
+import type { ExecutionSession, ExecutionStep, SessionMetadata, SessionResult, ExecutionSessionEvent } from "./types";
 import { isSessionTerminal } from "./types";
 
 function createDefaultMetadata(): SessionMetadata {

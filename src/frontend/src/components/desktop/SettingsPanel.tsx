@@ -68,8 +68,6 @@ function SettingsAITab() {
     return <div className="loading-skeleton">Loading AI settings...</div>;
   }
 
-  const currentOption = COMMERCIAL_POLICY_OPTIONS.find(o => o.value === policy);
-
   return (
     <div className="pr-settings-ai">
       <h3>Routing Cost Policy</h3>

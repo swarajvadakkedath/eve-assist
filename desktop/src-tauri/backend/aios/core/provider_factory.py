@@ -256,6 +256,7 @@ def _create_openai_compatible(
         "commercial_policy": definition.commercial_policy,
         "discovery_strategy": definition.discovery_strategy,
         "extra_headers": definition.extra_headers,
+        "priority": definition.priority,
     }
 
     return OpenAICompatibleAdapter(

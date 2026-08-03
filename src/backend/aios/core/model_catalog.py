@@ -124,6 +124,18 @@ MODEL_CATALOG: dict[str, list[dict[str, Any]]] = {
         {"id": "deepseek-r1-distill-llama-70b", "displayName": "DeepSeek R1 Distill Llama 70B", "contextLength": 131072, "maxOutput": 16384, "supportsReasoning": True, "isFree": True, "speed": 6, "quality": 8, "costPer1kInput": 0.00075, "costPer1kOutput": 0.00099},
     ],
     "openrouter": [],  # dynamic — fetched from API
+    "deepinfra": [
+        {"id": "meta-llama/Meta-Llama-3.3-70B-Instruct-Turbo", "displayName": "Llama 3.3 70B Turbo", "contextLength": 131072, "maxOutput": 4096, "supportsFunctionCalling": True, "supportsJSON": True, "isFree": False, "recommended": True, "speed": 8, "quality": 8, "costPer1kInput": 0.00023, "costPer1kOutput": 0.00040},
+        {"id": "deepseek-ai/DeepSeek-V3", "displayName": "DeepSeek V3", "contextLength": 131072, "maxOutput": 8192, "supportsFunctionCalling": True, "supportsJSON": True, "supportsReasoning": True, "isFree": False, "recommended": True, "speed": 7, "quality": 9, "costPer1kInput": 0.00044, "costPer1kOutput": 0.00044},
+        {"id": "deepseek-ai/DeepSeek-R1", "displayName": "DeepSeek R1", "contextLength": 131072, "maxOutput": 16384, "supportsReasoning": True, "isFree": False, "speed": 5, "quality": 9, "costPer1kInput": 0.00056, "costPer1kOutput": 0.00056},
+        {"id": "Qwen/Qwen2.5-72B-Instruct", "displayName": "Qwen 2.5 72B", "contextLength": 131072, "maxOutput": 8192, "supportsFunctionCalling": True, "supportsJSON": True, "isFree": False, "speed": 8, "quality": 8, "costPer1kInput": 0.00023, "costPer1kOutput": 0.00023},
+        {"id": "meta-llama/Llama-3.1-70B-Instruct", "displayName": "Llama 3.1 70B", "contextLength": 131072, "maxOutput": 4096, "supportsFunctionCalling": True, "supportsJSON": True, "isFree": False, "speed": 7, "quality": 8, "costPer1kInput": 0.00023, "costPer1kOutput": 0.00040},
+        {"id": "meta-llama/Llama-3.1-8B-Instruct", "displayName": "Llama 3.1 8B", "contextLength": 131072, "maxOutput": 4096, "supportsFunctionCalling": True, "supportsJSON": True, "isFree": True, "speed": 10, "quality": 6, "costPer1kInput": 0.00000, "costPer1kOutput": 0.00000},
+        {"id": "mistralai/Mixtral-8x7B-Instruct-v0.1", "displayName": "Mixtral 8x7B", "contextLength": 32768, "maxOutput": 4096, "isFree": True, "speed": 7, "quality": 7, "costPer1kInput": 0.00000, "costPer1kOutput": 0.00000},
+        {"id": "mistralai/Mistral-7B-Instruct-v0.3", "displayName": "Mistral 7B", "contextLength": 32768, "maxOutput": 4096, "isFree": True, "speed": 9, "quality": 6, "costPer1kInput": 0.00000, "costPer1kOutput": 0.00000},
+        {"id": "Phind/Phind-CodeLlama-34B-v2", "displayName": "Phind CodeLlama 34B", "contextLength": 16384, "maxOutput": 4096, "supportsFunctionCalling": True, "isFree": True, "speed": 6, "quality": 7, "costPer1kInput": 0.00000, "costPer1kOutput": 0.00000},
+        {"id": "thenlper/gte-large", "displayName": "GTE Large (Embeddings)", "contextLength": 8192, "maxOutput": 1024, "isFree": True, "speed": 9, "quality": 6, "costPer1kInput": 0.00000, "costPer1kOutput": 0.00000, "isEmbeddingModel": True},
+    ],
     "mistral": [
         {"id": "mistral-large-latest", "displayName": "Mistral Large", "contextLength": 131072, "maxOutput": 8192, "supportsFunctionCalling": True, "supportsJSON": True, "isFree": False, "recommended": True, "speed": 7, "quality": 8, "costPer1kInput": 0.00200, "costPer1kOutput": 0.00600},
         {"id": "mistral-small-latest", "displayName": "Mistral Small", "contextLength": 32768, "maxOutput": 8192, "supportsFunctionCalling": True, "isFree": False, "speed": 9, "quality": 6, "costPer1kInput": 0.00100, "costPer1kOutput": 0.00300},

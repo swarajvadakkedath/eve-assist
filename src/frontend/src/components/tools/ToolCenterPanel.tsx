@@ -5,6 +5,7 @@ interface ToolInfo {
   id: string;
   name: string;
   description: string;
+  category?: string;
   permission_level: number;
   parameters: Record<string, unknown>;
   requires_confirmation?: boolean;
@@ -216,23 +217,6 @@ export default function ToolCenterPanel({ onClose }: ToolCenterPanelProps) {
       });
     } catch (err: any) {
       console.error("Cancel failed:", err);
-    }
-  };
-
-  const handleCheckStatus = async (commandId: string) => {
-    try {
-      const result = await api.tools.execute("terminal.command_status", { command_id: commandId });
-      setCommands(prev => {
-        const updated = { ...prev };
-        for (const [key, cmd] of Object.entries(updated)) {
-          if (cmd.commandId === commandId) {
-            updated[key] = { ...cmd, status: result.data?.status || cmd.status };
-          }
-        }
-        return updated;
-      });
-    } catch (err: any) {
-      console.error("Status check failed:", err);
     }
   };
 

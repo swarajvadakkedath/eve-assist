@@ -1,30 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryWorkspace } from "./MemoryWorkspace";
 import { setMemoryStore, resetMemoryStore, MemoryStore } from "@/memory/core";
-import type { MemoryNode } from "@/memory/core";
+import type { NodeInput } from "@/memory/core";
 
-function createNode(id: string, title: string, overrides: Partial<MemoryNode> = {}): MemoryNode {
+function createNode(id: string, title: string, overrides: Partial<NodeInput> = {}): NodeInput {
   return {
-    id: { value: id, type: "test" },
+    id,
     type: "test",
     subtype: "test:sub",
     title,
-    summary: "",
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    lastAccessed: Date.now(),
     source: "test",
-    metadata: {},
-    tags: [],
-    importance: 0.5,
-    confidence: 0.5,
-    accessCount: 0,
-    pinned: false,
-    archived: false,
-    verified: false,
-    verificationMethod: "",
-    status: "active",
     ...overrides,
   };
 }

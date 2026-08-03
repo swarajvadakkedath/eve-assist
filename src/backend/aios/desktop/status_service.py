@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 
 class AppStatus(str, enum.Enum):
     STARTING = "starting"
+    INITIALIZING = "initializing"
     READY = "ready"
     LISTENING = "listening"
     THINKING = "thinking"
@@ -25,6 +26,7 @@ class AppStatus(str, enum.Enum):
     WAITING = "waiting"
     UPDATING = "updating"
     OFFLINE = "offline"
+    DEGRADED = "degraded"
     ERROR = "error"
 
 
@@ -84,6 +86,11 @@ class StatusService:
 
     def get_metadata(self) -> dict:
         return dict(self._metadata)
+
+    @property
+    def is_ready(self) -> bool:
+        """True when the backend is usable (READY or DEGRADED)."""
+        return self._status in (AppStatus.READY, AppStatus.DEGRADED)
 
     def subscribe(self, observer: StatusObserver) -> None:
         self._observers.append(observer)
