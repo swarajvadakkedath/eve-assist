@@ -716,8 +716,8 @@ class TestStreamingFailure:
     """Streaming pre-token and post-token failure behavior."""
 
     @pytest.mark.asyncio
-    async def test_stream_failure_propagates_error(self):
-        """Stream failure propagates error. Conservative: no mid-stream failover (spec §27)."""
+    async def test_stream_pre_token_failure_failover(self):
+        """Pre-token stream failure in AUTO → self-healing failover to healthy provider."""
         router = SmartRouter()
         fail_adapter = FakeAdapter("google-a", fail=True)
         good_adapter = FakeAdapter("google-b")
@@ -732,8 +732,34 @@ class TestStreamingFailure:
 
         req = make_request()
         tokens = []
+        result = await router.route_stream(req, routing_policy=RoutingPolicy.AUTO)
+        async for token in result.tokens:
+            tokens.append(token)
+
+        # Failed provider excluded; response comes from the healthy provider
+        assert tokens
+        assert result.trace.selected_provider_instance_id == "google-b"
+        assert len(result.trace.attempts) == 2
+        assert result.trace.attempts[0]["outcome"] == "failed"
+        assert result.trace.attempts[1]["outcome"] == "success"
+        # Health updated immediately (self-healing feed, not waiting for poll)
+        assert router._health_monitor.get_health("google-a").state == HealthState.DEGRADED
+        assert router._health_monitor.get_health("google-b").state == HealthState.HEALTHY
+
+    @pytest.mark.asyncio
+    async def test_stream_failure_propagates_error_strict(self):
+        """STRICT: pre-token stream failure still propagates (no failover)."""
+        router = SmartRouter()
+        fail_adapter = FakeAdapter("google-a", fail=True)
+        router.register_adapter("google-a", fail_adapter)
+        router.set_provider_models("google-a", [
+            make_model("gemini-2.5-flash", "google-a", "google"),
+        ])
+
+        req = make_request()
+        tokens = []
         with pytest.raises(RuntimeError):
-            result = await router.route_stream(req, routing_policy=RoutingPolicy.AUTO)
+            result = await router.route_stream(req, routing_policy=RoutingPolicy.STRICT)
             async for token in result.tokens:
                 tokens.append(token)
 
