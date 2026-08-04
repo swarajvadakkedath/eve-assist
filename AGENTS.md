@@ -1,5 +1,5 @@
 ## Objective
-- Complete EVE v1.2.2 "Production AI Ecosystem": integrate all 9 configured providers via the already-built Universal Provider Framework, add DeepInfra, dynamic model/capability discovery, commercial policy engine (FREE_ONLY default), SmartRouter capability routing, health engine, multi-account, auto-refresh, fallback chains, performance, regression, and docs.
+- Complete EVE v1.2.3 "AI Error Intelligence": centralized error capture → classification (21 categories) → human explanation → recovery suggestions → safe auto-recovery → immediate provider-health feed → diagnostics logging → Recovery Center tab in AI Operations Center → per-error copy-diagnostics (MD/JSON/text). Also fixes v1.2.3 defects: "The provider returned an empty response" masking + broken Retry.
 
 ## Important Details
 - Framework already exists and is fully implemented — do NOT redesign it, use it
@@ -13,6 +13,7 @@
 - All backend changes must mirror to `desktop/src-tauri/backend/aios/` with parity verified
 - `settings` (AiosSettings) now has `provider_health_interval` (120s) + `model_refresh_interval` (3600s) — W7
 - pytest quirk on this machine (Python 3.14 + pytest 9.1.1): full-suite / `tests/unit` aggregate runs abort with `INTERNALERROR` (`'E:\Eve_Ai' is not in the subpath of 'E:\Eve_Ai'`, a `bestrelpath` bug). PRE-EXISTING (confirmed via git stash), unrelated to code. Workaround: run test files individually or run `tests/provider_framework` as a group. `tests/unit` = 1581 pass individually across 56 files; only `test_office_tools.py` fails (missing optional deps openpyxl/pdfplumber — pre-existing).
+- v1.2.3 investigation (`EVE_V1.2.3_CHAT_TOOL_AND_RETRY_REPORT.md`): 6 `stream.empty_response` events were NOT tool-prompt-specific — all provider transport failures masked by 3 defects: (a) no stream-time failover in `route_stream`; (b) `StreamManager.stream` retry re-iterated same exhausted generator; (c) `manager.py` empty-response check hid real error. All three fixed in P1.
 
 ## Work State
 ### Completed
@@ -46,28 +47,51 @@
   - Also fixed `_token_match` digit-boundary (family name + version suffix): `qwen` now matches `qwen2.5-coder:7b` → `supports_tools=True`; added `deepseek-coder`/`deepseek-r1` to tool family.
   - Live validation (`tools/validate_w2_capabilities.py`, real 9-provider install): 966 models refreshed (0 dups); 106 reasoning+thinking, 643 tools, 652 fc; reasoning spot-checks (o1/o3-mini/deepseek-r1/gemini-2.5/kimi-k2/qwq) all `reasoning=True thinking=True`; coding spot-checks (gpt-4o/llama-3.3/deepseek-chat/qwen2.5-coder:7b) all `tools=True fc=True`; SmartRouter AUTO/FREE_ONLY resolves `reasoning`/`coding`/`general_chat` → `google/gemini-2.5-flash` (FREE, all flags). Tri-state sanity: explicit False preserved.
   - Tests: `test_w2_regression.py` now 29 (tri-state, metadata priority, merge semantics, RouteCandidate supports_thinking, digit-boundary token match, from_old_format commercial round-trip). **provider_framework 258/258 pass**; `src/backend/aios/tests` 363/364 (only pre-existing `test_github_models_headers_set`). Desktop mirror re-copied for 10 changed/new files (incl. new `capability_inference.py`), byte-parity verified via `git diff --no-index`, desktop copy compiles + imports cleanly.
+- **P1–P7 AI Error Intelligence — DONE**:
+  - P1 Foundations: `TokenSource` union = `AsyncIterator | Callable[[], AsyncIterator]`, fresh generator per retry via `token_factory` field on `RouteStreamResult`, zero-token failover, immediate health feed via `record_provider_success`/`record_provider_result`, `_classify_stream_error`, stream retry excludes OPEN_CIRCUIT/UNREACHABLE providers, 79 routing tests.
+  - P2 `error_intelligence` package: `models.py` (21 ErrorCategories UPPERCASE, Severity, AutoRecoveryStrategy, Classification, ErrorEvent), `classifier.py` (7-step priority rules engine), `service.py` (bounded JSON `~/.eve/errors.json`, 1000 event ring, atomic writes, threading.Lock, stats/timeline/recoveries/report), `diagnostics.py` (format_report: markdown/json/plain), `events.py` (error_to_stream_event adapter).
+  - P3 Capture instrumentation: `smart_router.py` (stream retry + empty stream), `conversation/manager.py` (_capture_error helper with lazy import, _enrich_stream_error, stream error events enriched), `tool_manager.py` (timeout + exception), `voice/stt.py`, `vision/engine.py`, `memory_system.py`, `workspace/manager.py`, `plugins/loader.py`, `api/app.py` (500 exception handler).
+  - P4 Recovery engine: `RecoveryEngine` with stateless design (dependencies injected), RETRY/SWITCH_PROVIDER/REFRESH_MODELS/COOLDOWN/RETRY_OR_SWITCH/SUGGEST_ONLY strategies, records results via `error_intelligence.record_recovery_result`.
+  - P5 API router: `GET /errors` (list+filters), `/errors/stats`, `/errors/timeline`, `/errors/recoveries`, `/errors/{id}`, `/errors/{id}/report?format=`, `POST /errors/clear`, `GET /routing/categories`. Registered in `app.py`.
+  - P6 Frontend: Recovery Center tab (aioTypes + "recovery" tab + AioErrorEvent/AioErrorStats/AioTimelineEvent), aioApi.ts (fetchErrors/fetchErrorStats/fetchErrorTimeline/fetchErrorRecoveries/fetchErrorDetail/fetchErrorReport/clearErrors), AioStore (errors/errorStats/errorTimeline state + loadAll fetch), RecoveryView.tsx (stats grid, filters, error list, detail panel, timeline, copy MD/JSON/Plain), AIOperationsCenter.tsx VIEW_MAP wired, ai-operations.css Recovery Center styles, ConversationErrorState.tsx enhanced with errorData (category/likely_cause/recovery_suggestions/provider/model) + "View in Recovery Center" button.
+  - 38 tests: taxonomy, classifier (route errors, provider status, HTTP, exceptions, message hints, module heuristics, fallback), service (capture, bounded ring, persistence round-trip, stats, timeline, recoveries, report formats, clear, bad file tolerance), stream event adapter, recovery engine.
+  - Full regression: 318 passed in provider_framework; `tsc --noEmit` clean; desktop mirror parity verified for all backend source files (error_intelligence package + errors router + core files).
 
 ### Blocked
 - Cannot start the full backend from within the tool (PowerShell Start-Process killed by sandbox). Use `py_compile` + `import` tests. Full `pytest tests/` aggregate run also blocked by pre-existing INTERNALERROR path bug (see Important Details).
 
 ## Next Move
-- v1.2.2 work + W2 live-validation remediation complete (W0–W10 + remediation). Next release steps: run `npm run build` + manual smoke test of the running app, then tag v1.2.2 (only with explicit approval).
+- v1.2.3 complete (P1–P7). Next release steps: run `npm run build` + manual smoke test of the running app, then tag v1.2.3 (only with explicit approval).
 
 ## Relevant Files
-- `src/backend/aios/api/app.py`: shared HealthMonitor (split-brain fixed), `start_background_check` + background model refresh wired in lifespan.
+- `src/backend/aios/api/app.py`: shared HealthMonitor (split-brain fixed), `start_background_check` + background model refresh wired in lifespan, 500 exception handler, errors_router registered.
 - `src/backend/aios/api/providers.py`: route shadowing fixed (literals before `{provider_id}`), `GET /routing/categories`, commercial-policy endpoints through manager.
+- `src/backend/aios/api/errors.py`: `/api/v1/errors/*` router (list/stats/timeline/recoveries/{id}/report/clear).
+- `src/backend/aios/error_intelligence/`: `__init__.py`, `models.py` (21 ErrorCategories, Severity, AutoRecoveryStrategy, Classification, ErrorEvent), `classifier.py` (7-step priority rules engine), `service.py` (bounded JSON persistence), `diagnostics.py` (markdown/json/plain), `events.py` (error_to_stream_event), `recovery_engine.py` (RecoveryEngine).
 - `src/backend/aios/core/adapters/openai_compatible_adapter.py`: `_list_standard_models` added, `_generic_classify` arity fixed, `_classify_deepinfra` added, `_COMMERCIAL_POLICIES` map, `_extract_capabilities`/`_extract_deprecation`, `_list_lmstudio_models`, priority property.
 - `src/backend/aios/core/provider_registry.py`: 17 builtins now (deepinfra added), `register/get/all/all_as_dicts`, ProviderDefinition fields.
 - `src/backend/aios/core/provider_factory.py`: `create_adapter()` + native_map, OpenAICompatible metadata dict (commercial_policy/discovery_strategy/extra_headers/priority).
-- `src/backend/aios/core/smart_router.py`: `__init__` (health_monitor, strategy, commercial_policy), FREE_ONLY default, PRIORITY strategy, MAX_CANDIDATE_ATTEMPTS, 6 capability flags on RouteCandidate, fallback hierarchy levels 0-7, `ROUTING_CATEGORIES`.
+- `src/backend/aios/core/smart_router.py`: `__init__` (health_monitor, strategy, commercial_policy), FREE_ONLY default, PRIORITY strategy, MAX_CANDIDATE_ATTEMPTS, 6 capability flags on RouteCandidate, fallback hierarchy levels 0-7, `ROUTING_CATEGORIES`, `_classify_stream_error`, stream retry + error_intelligence capture.
 - `src/backend/aios/core/provider_manager.py`: `__init__` (config_dir, smart_router, health_monitor, model_cache, streaming_manager), `_save`, `_save_routing` (dict format + migration), `refresh_all_models` (parallel), `start_background_refresh`, `get/set_commercial_policy`, shutdown.
-- `src/backend/aios/core/health_monitor.py`: `check_all`, `start_background_check`, ProviderHealth success_rate/health_score scoring.
+- `src/backend/aios/core/health_monitor.py`: `check_all`, `start_background_check`, `record_provider_success`, `record_provider_result`, ProviderHealth success_rate/health_score scoring.
 - `src/backend/aios/core/routing_types.py`: `CATEGORY_CAPABILITIES` single source (CAPABILITY_MAP aliased), RouteCandidate context_window, fallback reasons, CommercialPolicy.
 - `src/backend/aios/core/model_catalog.py`: static enrichment catalog, now 17 provider keys incl. deepinfra, `get_catalog_models`/`merge_models`/`model_from_catalog`.
 - `src/backend/aios/core/model_info.py`: canonical ModelInfo (20+ capability flags, context_window, max_output_tokens).
+- `src/backend/aios/core/tool_manager.py`: timeout + exception error_intelligence capture.
+- `src/backend/aios/core/memory_system.py`: store failure error_intelligence capture.
+- `src/backend/aios/conversation/stream.py`: `TokenSource` union, factory-based fresh generator per retry.
+- `src/backend/aios/conversation/manager.py`: `_capture_error()` (lazy import), `_enrich_stream_error()`, instrumented stream_message error paths.
+- `src/backend/aios/voice/stt.py`: error path error_intelligence capture.
+- `src/backend/aios/vision/engine.py`: `analyze_screen`/`full_observation` try/except capture.
+- `src/backend/aios/workspace/manager.py`: `start()` try/except capture.
+- `src/backend/aios/plugins/loader.py`: per-plugin failure capture.
 - `src/backend/aios/config/settings.py`: `provider_health_interval` (120s) + `model_refresh_interval` (3600s).
+- `src/frontend/src/components/aio/`: aioTypes.ts (+ "recovery" tab, AioErrorEvent/AioErrorStats/AioTimelineEvent), aioApi.ts (fetchErrors/fetchErrorStats/fetchErrorTimeline/fetchErrorRecoveries/fetchErrorDetail/fetchErrorReport/clearErrors), AioStore.ts (errors/errorStats/errorTimeline), AIOperationsCenter.tsx (+RecoveryView import), RecoveryView.tsx (Recovery Center component), ai-operations.css (+recovery styles).
+- `src/frontend/src/components/conversation/ConversationErrorState.tsx`: enhanced with errorData (category/likely_cause/recovery_suggestions/provider/model) + "View in Recovery Center" button.
 - `src/frontend/src/components/providers/`: types.ts, ManageProvidersPage, ProviderConfigurationDialog (metadata-driven, supports_organization fix), AddProviderDialog (deepinfra icon), AIProviderCard, SmartRoutingPanel (categories from API).
 - `src/frontend/src/services/api.ts`: provider + routing + onboard helpers.
-- `tests/provider_framework/`: registry/factory/onboarding/contract + W2-W8 test files (capability_extraction, commercial_policy, routing_enhancements, health_score, routing_categories, model_refresh, fallback_chain).
+- `tests/provider_framework/`: registry/factory/onboarding/contract + W2-W8 test files (capability_extraction, commercial_policy, routing_enhancements, health_score, routing_categories, model_refresh, fallback_chain, error_intelligence).
 - `desktop/src-tauri/backend/aios/`: mirror target for all backend changes.
 - `EVE_AI_ECOSYSTEM_REPORT.md`: full ecosystem report for v1.2.2.
+- `EVE_V1.2.3_CHAT_TOOL_AND_RETRY_REPORT.md`: investigation report for v1.2.3 defects.
+- `AI_ERROR_INTELLIGENCE_ARCHITECTURE.md`: error intelligence system architecture.

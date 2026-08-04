@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from aios.error_intelligence import get_error_intelligence
+
 from aios.models.memory import (
     MemoryNode,
     MemoryEdge,
@@ -252,7 +254,18 @@ class MemorySystem:
         )
         node, errors = self._store.create_node(node_input)
         if errors:
-            raise ValueError(f"Failed to store memory: {[str(e) for e in errors]}")
+            err_msg = f"Failed to store memory: {[str(e) for e in errors]}"
+            try:
+                svc = get_error_intelligence()
+                svc.capture(
+                    err_msg,
+                    category="DATABASE",
+                    module="core.memory_system",
+                    severity="MEDIUM",
+                )
+            except Exception:
+                pass
+            raise ValueError(err_msg)
         self._dirty = True
         logger.info("memory stored", node_id=node.id.value, scope=scope, project_id=project_id)
         return node.id.value

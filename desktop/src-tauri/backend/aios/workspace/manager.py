@@ -16,6 +16,7 @@ from aios.workspace.watcher import WorkspaceWatcher
 from aios.workspace.events import WorkspaceEventPublisher
 from aios.workspace.repository import WorkspaceRepository
 from aios.utils.logger import get_logger
+from aios.error_intelligence import get_error_intelligence
 
 logger = get_logger(__name__)
 
@@ -36,8 +37,16 @@ class WorkspaceManager:
     async def start(self) -> None:
         if self._running:
             return
-        await self._window_sensor.start()
-        await self._process_sensor.start()
+        try:
+            await self._window_sensor.start()
+            await self._process_sensor.start()
+        except Exception as e:
+            try:
+                svc = get_error_intelligence()
+                svc.capture_exception(e, module="workspace.manager", message=f"Workspace start failed: {e}")
+            except Exception:
+                pass
+            raise
         self._running = True
         logger.info("workspace_manager.started")
 

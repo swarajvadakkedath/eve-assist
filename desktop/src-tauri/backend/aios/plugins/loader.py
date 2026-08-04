@@ -18,6 +18,7 @@ from aios.plugins.exceptions import PluginLoadError, PluginValidationError, Plug
 from aios.plugins.repository import PluginRepository
 from aios.plugins.sdk import AIOSPlugin
 from aios.utils.logger import get_logger
+from aios.error_intelligence import get_error_intelligence
 
 logger = get_logger(__name__)
 
@@ -71,6 +72,11 @@ class PluginLoader:
                     loaded_plugins.append(plugin)
             except Exception as e:
                 logger.error("loader.failed", plugin_id=plugin_id, error=str(e))
+                try:
+                    svc = get_error_intelligence()
+                    svc.capture_exception(e, module="plugins.loader", message=f"Plugin {plugin_id} failed: {e}")
+                except Exception:
+                    pass
         return loaded_plugins
 
     async def load_single(self, plugin_id: str) -> Optional[Plugin]:

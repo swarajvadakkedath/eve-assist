@@ -614,9 +614,18 @@ class ConversationManager(IConversationService):
             stream_result = await self._ai_router.route_stream(req, routing_policy=policy)
             routing_trace = stream_result.trace.to_dict()
 
-            async for event in self._stream_manager.stream(stream_result.request_id, stream_result.tokens, done_metadata={"routing_trace": routing_trace}):
+            token_source = stream_result.token_factory or (lambda: stream_result.tokens)
+            async for event in self._stream_manager.stream(stream_result.request_id, token_source, done_metadata={"routing_trace": routing_trace}):
                 if event["type"] == StreamEventType.ERROR.value:
                     had_error = True
+                    event = self._enrich_stream_error(
+                        event,
+                        conversation_id=conversation_id,
+                        request_id=stream_result.request_id,
+                        provider=stream_result.trace.selected_provider_instance_id,
+                        model=stream_result.trace.selected_model_id,
+                        duration=(time.monotonic() - start_time) * 1000,
+                    )
                 if event["type"] == StreamEventType.TOKEN.value:
                     full_content += event["data"]["token"]
                     tokens_used += 1
@@ -624,19 +633,40 @@ class ConversationManager(IConversationService):
 
         except NoEligibleRouteError as e:
             logger.error("stream.strict_failure", error=str(e))
-            yield create_error_event(f"Strict routing failed: {e.reason}", recoverable=False)
+            error_msg = f"Strict routing failed: {e.reason}"
+            self._capture_error(
+                e,
+                module="conversation.manager",
+                conversation_id=conversation_id,
+                provider=e.provider_instance_id if hasattr(e, 'provider_instance_id') else None,
+                message=error_msg,
+            )
+            yield create_error_event(error_msg, recoverable=False)
             had_error = True
-            full_content = f"Strict routing failed: {e.reason}"
+            full_content = error_msg
         except Exception as e:
             logger.error("stream.failed", error=str(e))
-            yield create_error_event(sanitize_error(str(e)), recoverable=True)
+            sanitized = sanitize_error(str(e))
+            self._capture_error(
+                e,
+                module="conversation.manager",
+                conversation_id=conversation_id,
+                message=sanitized,
+            )
+            yield create_error_event(sanitized, recoverable=True)
             had_error = True
-            full_content = full_content or f"I encountered an error: {sanitize_error(str(e))}"
+            full_content = full_content or f"I encountered an error: {sanitized}"
 
         latency_ms = (time.monotonic() - start_time) * 1000
 
         if not full_content and not had_error:
             logger.error("stream.empty_response", conversation_id=conversation_id)
+            self._capture_error(
+                RuntimeError("Provider returned empty response"),
+                module="conversation.manager",
+                conversation_id=conversation_id,
+                message="The provider returned an empty response.",
+            )
             yield create_error_event("The provider returned an empty response.", recoverable=True)
             return
 
@@ -807,6 +837,68 @@ class ConversationManager(IConversationService):
             await self._update_memory(user_input, response, conversation_id)
         except Exception as e:
             logger.warning("memory.store_failed_silently", error=str(e)[:200])
+
+    def _capture_error(
+        self,
+        exc: BaseException,
+        *,
+        module: str = "conversation",
+        conversation_id: str | None = None,
+        request_id: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        message: str | None = None,
+    ) -> None:
+        try:
+            from aios.error_intelligence import get_error_intelligence
+            svc = get_error_intelligence()
+            svc.capture_exception(
+                exc,
+                module=module,
+                conversation_id=conversation_id,
+                request_id=request_id,
+                provider=provider,
+                model=model,
+                message=message,
+            )
+        except Exception:
+            pass
+
+    def _enrich_stream_error(
+        self,
+        event: dict,
+        *,
+        conversation_id: str,
+        request_id: str | None,
+        provider: str | None,
+        model: str | None,
+        duration: float | None,
+    ) -> dict:
+        try:
+            from aios.error_intelligence import get_error_intelligence, error_to_stream_event, classify_error
+            data = event.get("data", {})
+            error_message = data.get("error", "AI request failed")
+            cls = classify_error(message=error_message, module="conversation.stream")
+            svc = get_error_intelligence()
+            recorded = svc.capture_exception(
+                RuntimeError(error_message),
+                module="conversation.stream",
+                conversation_id=conversation_id,
+                request_id=request_id,
+                provider=provider,
+                model=model,
+                duration=duration,
+                message=error_message,
+                classification=cls,
+            )
+            if recorded is not None:
+                enriched = error_to_stream_event(recorded)
+                enriched["data"]["error"] = error_message
+                enriched["data"]["recoverable"] = data.get("recoverable", False)
+                return enriched
+        except Exception:
+            pass
+        return event
 
     # ── Vision Observation Injection ────────────────────────────────
 

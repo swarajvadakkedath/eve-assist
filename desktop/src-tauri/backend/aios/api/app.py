@@ -48,6 +48,7 @@ from aios.execution.engine import ExecutionEngine
 from aios.workspace.manager import WorkspaceManager
 from aios.workspace.service import WorkspaceService
 from aios.desktop.status_service import StatusService, AppStatus
+from aios.error_intelligence import get_error_intelligence
 from aios.desktop.settings_store import SettingsStore
 from aios.desktop.hotkeys import HotkeyManager
 from aios.desktop.notifications import NotificationService
@@ -363,6 +364,19 @@ def create_app() -> FastAPI:
 
     register_routes(app)
 
+    @app.exception_handler(500)
+    async def record_500(request: Request, exc: Exception):
+        try:
+            svc = get_error_intelligence()
+            svc.capture_exception(
+                exc,
+                module="api",
+                message=str(exc),
+            )
+        except Exception:
+            pass
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
     return app
 
 
@@ -402,6 +416,9 @@ def register_routes(app: FastAPI):
 
     from aios.api.providers import router as providers_router
     app.include_router(providers_router)
+
+    from aios.api.errors import router as errors_router
+    app.include_router(errors_router, prefix="/api/v1")
 
     @app.get("/api/v1/system/health")
     async def health_check(request: Request):

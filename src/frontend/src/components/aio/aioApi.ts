@@ -1,7 +1,7 @@
 import { fetchApi } from "../../services/api";
 import type {
   AioProvider, AioModel, AioHealthEntry, AioHealthSnapshot, AioRoutingEntry,
-  AioRoutingCategory, AioDiagnostics,
+  AioRoutingCategory, AioDiagnostics, AioErrorEvent, AioErrorStats, AioTimelineEvent,
 } from "./aioTypes";
 
 async function get<T>(path: string): Promise<T> {
@@ -100,4 +100,35 @@ export async function setRouting(routing: AioRoutingEntry[]) {
 
 export async function fetchSystemHealth() {
   return get<{ version?: string; status?: string; modules?: Record<string, string> }>("/system/health");
+}
+
+export async function fetchErrors(limit = 100, category?: string, severity?: string) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (category) params.set("category", category);
+  if (severity) params.set("severity", severity);
+  return get<{ errors: AioErrorEvent[]; count: number }>(`/errors?${params}`);
+}
+
+export async function fetchErrorStats() {
+  return get<AioErrorStats>("/errors/stats");
+}
+
+export async function fetchErrorTimeline(limit = 100) {
+  return get<{ timeline: AioTimelineEvent[] }>(`/errors/timeline?limit=${limit}`);
+}
+
+export async function fetchErrorRecoveries(limit = 100) {
+  return get<{ recoveries: AioErrorEvent[]; count: number }>(`/errors/recoveries?limit=${limit}`);
+}
+
+export async function fetchErrorDetail(errorId: string) {
+  return get<AioErrorEvent>(`/errors/${errorId}`);
+}
+
+export async function fetchErrorReport(errorId: string, format = "markdown") {
+  return get<{ report: string }>(`/errors/${errorId}/report?format=${format}`);
+}
+
+export async function clearErrors() {
+  return post<{ status: string }>("/errors/clear", {});
 }

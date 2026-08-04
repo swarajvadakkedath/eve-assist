@@ -9,6 +9,7 @@ from aios.core.event_bus import EventBus
 from aios.core.di_container import DIContainer
 from aios.core.permission_manager import PermissionLevel, PermissionManager
 from aios.core.capability_registry import CapabilityRegistry, Capability
+from aios.error_intelligence import get_error_intelligence
 
 
 class ToolManagerError(Exception):
@@ -251,6 +252,17 @@ class ToolManager:
                     "timeout": contract.timeout,
                 },
             )
+            try:
+                svc = get_error_intelligence()
+                svc.capture_exception(
+                    asyncio.TimeoutError(f"Tool {tool_id} timed out after {contract.timeout}s"),
+                    module="tool_manager",
+                    tool=tool_id,
+                    duration=duration * 1000,
+                    message=f"Tool timed out after {contract.timeout}s: {tool_id}",
+                )
+            except Exception:
+                pass
             return ToolResult(
                 success=False,
                 error=f"Tool timed out after {contract.timeout}s: {tool_id}",
@@ -268,6 +280,17 @@ class ToolManager:
                     "error": str(e),
                 },
             )
+            try:
+                svc = get_error_intelligence()
+                svc.capture_exception(
+                    e,
+                    module="tool_manager",
+                    tool=tool_id,
+                    duration=duration * 1000,
+                    message=f"Tool execution error: {e}",
+                )
+            except Exception:
+                pass
             return ToolResult(
                 success=False,
                 error=f"Tool execution error: {e}",

@@ -12,6 +12,7 @@ from aios.vision.models import (
 from aios.vision.screenshot import capture_target, get_monitors, capture_active_window
 from aios.vision.ocr import extract_text_with_details, extract_text_from_bytes, redact_sensitive
 from aios.vision.ui_understanding import analyze_layout, analyze_layout_from_bytes
+from aios.error_intelligence import get_error_intelligence
 
 
 class VisionEngine:
@@ -54,17 +55,33 @@ class VisionEngine:
         return result
 
     async def analyze_screen(self) -> DetectionResult:
-        img = await self.get_screenshot_pil()
-        return await self._analyze_image(img)
+        try:
+            img = await self.get_screenshot_pil()
+            return await self._analyze_image(img)
+        except Exception as e:
+            try:
+                svc = get_error_intelligence()
+                svc.capture_exception(e, module="vision.engine", message=f"Screen analysis failed: {e}")
+            except Exception:
+                pass
+            raise
 
     async def analyze_image(self, image_data: bytes) -> DetectionResult:
         return await analyze_layout_from_bytes(image_data)
 
     async def full_observation(self) -> VisionObservation:
         start = time.monotonic()
-        screenshot = await capture_target(CaptureTarget.FULL_SCREEN)
-        ocr = await self.ocr_screenshot()
-        detection = await self.analyze_screen()
+        try:
+            screenshot = await capture_target(CaptureTarget.FULL_SCREEN)
+            ocr = await self.ocr_screenshot()
+            detection = await self.analyze_screen()
+        except Exception as e:
+            try:
+                svc = get_error_intelligence()
+                svc.capture_exception(e, module="vision.engine", message=f"Vision observation failed: {e}")
+            except Exception:
+                pass
+            raise
         duration = (time.monotonic() - start) * 1000
         if detection:
             detection.duration_ms = duration

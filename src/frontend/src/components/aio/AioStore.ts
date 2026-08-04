@@ -2,12 +2,14 @@ import { useSyncExternalStore } from "react";
 import {
   fetchProviders, fetchProviderHealth, fetchHealthHistory, fetchDiagnostics,
   fetchRouting, fetchCategories, fetchCommercialPolicy, fetchFreeModels,
+  fetchErrors, fetchErrorStats, fetchErrorTimeline,
   testProvider, testAllProviders, refreshProviderModels,
 } from "./aioApi";
 import { waitForReady, getStatusSnapshot, subscribeStatusChange } from "../../services/statusStore";
 import type {
   AioProvider, AioHealthEntry, AioHealthSnapshot, AioDiagnostics,
   AioRoutingEntry, AioRoutingCategory, AioActivityEvent, AioModel,
+  AioErrorEvent, AioErrorStats, AioTimelineEvent,
 } from "./aioTypes";
 
 type Listener = () => void;
@@ -22,6 +24,9 @@ interface AioState {
   policy: string;
   freeModels: AioModel[];
   activity: AioActivityEvent[];
+  errors: AioErrorEvent[];
+  errorStats: AioErrorStats | null;
+  errorTimeline: AioTimelineEvent[];
   lastRefresh: number;
   lastHealthCheck: number;
   loading: boolean;
@@ -41,6 +46,9 @@ let state: AioState = {
   policy: "allow_paid",
   freeModels: [],
   activity: [],
+  errors: [],
+  errorStats: null,
+  errorTimeline: [],
   lastRefresh: 0,
   lastHealthCheck: 0,
   loading: true,
@@ -93,6 +101,9 @@ async function loadAll() {
       fetchCategories(),
       fetchCommercialPolicy(),
       fetchFreeModels(),
+      fetchErrors(100),
+      fetchErrorStats(),
+      fetchErrorTimeline(100),
     ]);
     const providers = settled(results, 0, []);
     const health = settled(results, 1, {});
@@ -102,10 +113,16 @@ async function loadAll() {
     const categories = settled(results, 5, []);
     const policy = settled(results, 6, "allow_paid");
     const freeModels = settled(results, 7, []);
+    const errorsResult = settled(results, 8, { errors: [], count: 0 });
+    const errorStats = settled(results, 9, null);
+    const timelineResult = settled(results, 10, { timeline: [] });
     const failures = results.filter((r) => r.status === "rejected").map((r) => (r as PromiseRejectedResult).reason);
     state = {
       ...state, providers, health, healthHistory: history, diagnostics,
       routing, categories, policy, freeModels,
+      errors: errorsResult.errors || [],
+      errorStats,
+      errorTimeline: timelineResult.timeline || [],
       loading: false, error: failures.length > 0 ? `Partial load failure: ${failures.length} endpoint(s)` : null,
       lastRefresh: Date.now(), lastHealthCheck: Date.now(),
       version: state.version + 1,

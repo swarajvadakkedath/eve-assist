@@ -6,6 +6,7 @@ from typing import Any
 
 from aios.voice.models import STTProvider, STTResult, AudioDevice, Transcript, TranscriptStatus
 from aios.utils.logger import get_logger
+from aios.error_intelligence import get_error_intelligence
 
 logger = get_logger(__name__)
 
@@ -103,9 +104,19 @@ class STTEngine:
         except sr.UnknownValueError:
             return STTResult(text="", confidence=0.0, is_final=False, error="Could not understand audio")
         except sr.RequestError as e:
+            try:
+                svc = get_error_intelligence()
+                svc.capture_exception(e, module="voice.stt", message=f"STT request failed: {e}")
+            except Exception:
+                pass
             return STTResult(text="", is_final=False, error=f"STT request failed: {e}")
         except Exception as e:
             logger.error("stt.recognize_failed", error=str(e))
+            try:
+                svc = get_error_intelligence()
+                svc.capture_exception(e, module="voice.stt", message=str(e))
+            except Exception:
+                pass
             return STTResult(text="", is_final=False, error=str(e))
 
     async def recognize_stream(self) -> AsyncIterator[Transcript]:

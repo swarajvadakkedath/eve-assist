@@ -128,6 +128,55 @@ export interface AioActivityEvent {
   severity: "info" | "warning" | "error" | "success";
 }
 
+export interface AioErrorEvent {
+  error_id: string;
+  timestamp: string;
+  category: string;
+  severity: string;
+  module: string;
+  message: string;
+  root_cause: string;
+  likely_cause: string;
+  recovery_suggestions: string[];
+  auto_recovery_attempted: boolean;
+  recovery_result: string | null;
+  conversation_id: string | null;
+  request_id: string | null;
+  provider: string | null;
+  model: string | null;
+  tool: string | null;
+  http_status: number | null;
+  exception_type: string | null;
+  stack_trace: string | null;
+  duration: number | null;
+  recoverable: boolean;
+  retryable: boolean;
+  resolved: boolean;
+}
+
+export interface AioErrorStats {
+  total: number;
+  resolved: number;
+  by_category: Record<string, number>;
+  by_severity: Record<string, number>;
+  top_failing_providers: Record<string, number>;
+  most_common_errors: Record<string, number>;
+  auto_recoveries: { attempted: number; recovered: number };
+  recovery_success_rate: number;
+}
+
+export interface AioTimelineEvent {
+  timestamp: string;
+  type: string;
+  message: string;
+  error_id: string;
+  category: string;
+  severity: string;
+  provider: string | null;
+  model: string | null;
+  resolved: boolean;
+}
+
 export interface AioMetrics {
   totalRequests: number;
   avgLatencyMs: number;
@@ -139,7 +188,7 @@ export interface AioMetrics {
   estimatedMoneySaved: number;
 }
 
-export type AioTabId = "dashboard" | "providers" | "models" | "smartrouter" | "health" | "activity" | "settings";
+export type AioTabId = "dashboard" | "providers" | "models" | "smartrouter" | "health" | "activity" | "settings" | "recovery";
 
 export interface AioTab {
   id: AioTabId;
@@ -153,6 +202,7 @@ export const AIO_TABS: AioTab[] = [
   { id: "models", label: "Models", icon: "🤖" },
   { id: "smartrouter", label: "SmartRouter", icon: "🧭" },
   { id: "health", label: "Health", icon: "💚" },
+  { id: "recovery", label: "Recovery", icon: "🔧" },
   { id: "activity", label: "Activity", icon: "📋" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];

@@ -256,6 +256,45 @@ class HealthMonitor:
     def get_all_model_rate_limits(self) -> dict[str, dict[str, Any]]:
         return {k: v.to_dict() for k, v in self._model_rate_limits.items()}
 
+    def record_provider_success(self, provider_id: str, model_id: str | None = None, latency_ms: float = 0.0):
+        """Feed a real request success into provider health immediately.
+
+        Updates the provider score, clears error/rate-limit state so a recovered
+        provider regains routing priority without waiting for background polling.
+        """
+        health = self._health.get(provider_id)
+        if health is None:
+            health = ProviderHealth(provider_id=provider_id)
+            self._health[provider_id] = health
+        health.record_success(latency_ms)
+        if model_id:
+            self.clear_model_rate_limit(provider_id, model_id)
+
+    def record_provider_result(
+        self,
+        provider_id: str,
+        model_id: str,
+        status: ProviderStatus,
+        error: str,
+        latency_ms: float = 0.0,
+        retry_after: float | None = None,
+    ):
+        """Feed a real request failure into provider + per-model health immediately.
+
+        Replaces waiting for the periodic background probe: a chat/stream failure
+        now updates ProviderHealth right away, and 429/quota additionally arm the
+        per-model cooldown so the router selects a different candidate next time.
+        """
+        health = self._health.get(provider_id)
+        if health is None:
+            health = ProviderHealth(provider_id=provider_id)
+            self._health[provider_id] = health
+        health.record_failure(status, sanitize_error(error), latency_ms, retry_after=retry_after)
+        if status == ProviderStatus.RATE_LIMITED:
+            self.record_model_429(provider_id, model_id, retry_after=retry_after)
+        elif status == ProviderStatus.QUOTA_EXCEEDED:
+            self.record_model_429(provider_id, model_id, quota_exhausted=True)
+
     async def check_provider(self, provider_id: str, adapter: AIProviderAdapter) -> ProviderHealth:
         health = self._health.setdefault(provider_id, ProviderHealth(provider_id=provider_id))
         start = time.monotonic()

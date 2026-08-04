@@ -595,3 +595,65 @@
   font-size: 48px;
   margin-bottom: 12px;
 }
+
+/* Recovery Center */
+.aio-recovery { padding: 16px; }
+.aio-recovery-filters { display: flex; gap: 12px; margin: 16px 0; align-items: center; }
+.aio-recovery-filters select {
+  background: var(--bg-secondary, #1a1a2e);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+.aio-btn-danger { background: #dc2626; color: #fff; border: none; }
+.aio-btn-danger:hover { background: #b91c1c; }
+.aio-recovery-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-height: 400px; }
+.aio-recovery-list { max-height: 600px; overflow-y: auto; }
+.aio-recovery-item {
+  padding: 12px;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.aio-recovery-item:hover { background: rgba(255,255,255,0.05); }
+.aio-recovery-item.selected { border-color: #3b82f6; background: rgba(59,130,246,0.1); }
+.aio-recovery-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.aio-recovery-category { font-weight: 600; font-size: 13px; }
+.aio-recovery-severity { font-size: 12px; font-weight: 600; }
+.aio-recovery-item-message { font-size: 13px; color: var(--text-secondary, #aaa); margin-bottom: 4px; }
+.aio-recovery-item-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.aio-recovery-time { font-size: 11px; color: var(--text-muted, #666); }
+.aio-recovery-detail-card {
+  padding: 16px;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+}
+.aio-recovery-detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.aio-recovery-message { font-size: 14px; margin-bottom: 12px; }
+.aio-recovery-cause { font-size: 13px; margin-bottom: 8px; color: var(--text-secondary, #aaa); }
+.aio-recovery-suggestions { margin: 12px 0; }
+.aio-recovery-suggestions ul { list-style: none; padding: 0; margin: 4px 0 0 0; }
+.aio-recovery-suggestions li { font-size: 13px; padding: 2px 0; }
+.aio-recovery-meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; font-size: 13px; }
+.aio-recovery-stacktrace { margin-top: 12px; }
+.aio-recovery-stacktrace pre {
+  background: rgba(0,0,0,0.3);
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.aio-recovery-actions { display: flex; gap: 8px; margin-top: 12px; }
+.aio-recovery-timeline { margin-top: 24px; }
+.aio-timeline-list { max-height: 300px; overflow-y: auto; }
+.aio-timeline-item { display: flex; gap: 8px; align-items: center; padding: 6px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.aio-timeline-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.aio-timeline-time { color: var(--text-muted, #666); font-size: 12px; min-width: 70px; }
+.aio-timeline-type { color: var(--text-secondary, #aaa); font-size: 12px; }
+.aio-timeline-message { flex: 1; }

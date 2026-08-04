@@ -1,7 +1,7 @@
 """Stream manager for token-level streaming with cancellation and recovery."""
 
 import asyncio
-from typing import AsyncIterator, Callable
+from typing import AsyncIterator, Callable, Union
 
 from aios.conversation.formatter import (
     create_token_event,
@@ -16,6 +16,8 @@ from aios.utils.tracer import trace_async_gen
 
 logger = get_logger(__name__)
 
+TokenSource = Union[AsyncIterator[str], Callable[[], AsyncIterator[str]]]
+
 
 class StreamManager:
     def __init__(self):
@@ -26,7 +28,7 @@ class StreamManager:
     async def stream(
         self,
         stream_id: str,
-        token_generator: AsyncIterator[str],
+        token_generator: TokenSource,
         max_retries: int = 2,
         done_metadata: dict | None = None,
     ) -> AsyncIterator[dict]:
@@ -36,7 +38,8 @@ class StreamManager:
         try:
             while retries <= max_retries:
                 try:
-                    async for token in token_generator:
+                    gen = token_generator() if callable(token_generator) else token_generator
+                    async for token in gen:
                         if self._cancelled.get(stream_id, False):
                             logger.info("stream.cancelled", stream_id=stream_id)
                             return

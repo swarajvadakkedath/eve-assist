@@ -8,6 +8,7 @@ import ProvidersView from "./ProvidersView";
 import ModelsView from "./ModelsView";
 import SmartRouterView from "./SmartRouterView";
 import HealthView from "./HealthView";
+import RecoveryView from "./RecoveryView";
 import ActivityView from "./ActivityView";
 import AioSettingsView from "./AioSettingsView";
 import "./ai-operations.css";
@@ -31,6 +32,7 @@ const VIEW_MAP: Record<AioTabId, React.FC> = {
   models: ModelsView,
   smartrouter: SmartRouterView,
   health: HealthView,
+  recovery: RecoveryView,
   activity: ActivityView,
   settings: AioSettingsView,
 };

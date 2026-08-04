@@ -17,11 +17,12 @@ Commercial policies:
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 
 import structlog
 
@@ -30,6 +31,7 @@ from aios.core.adapters.base import (
     ChatRequest,
     ChatResponse,
     ProviderStatus,
+    sanitize_error,
 )
 from aios.core.model_info import ModelInfo, CommercialStatus, AvailabilityStatus
 from aios.core.health_monitor import HealthMonitor, HealthState, RateLimitState
@@ -55,6 +57,7 @@ from aios.core.routing_types import (
     CATEGORY_CAPABILITIES,
     required_capabilities_from_category,
 )
+from aios.error_intelligence import get_error_intelligence, classify_error
 
 # Backward-compatible alias
 RoutingError = RouteError
@@ -290,15 +293,21 @@ def _filter_eligible(
     required_capabilities: list[str],
     commercial_policy: CommercialPolicy,
     trace: RoutingTrace | None = None,
+    exclude: set[str] | None = None,
 ) -> list[RouteCandidate]:
     """Filter candidates by eligibility. Reject ineligible, return eligible sorted for ranking."""
+    exclude = exclude or set()
     eligible = []
     for c in candidates:
         reject_reason = ""
 
+        # Explicit exclusion (stream-time failover already attempted these routes)
+        if f"{c.provider_instance_id}/{c.model_id}" in exclude:
+            reject_reason = "failover_excluded"
+
         # Provider health check
         # UNKNOWN/HEALTHY/DEGRADED are all eligible — only explicit failures reject
-        if c.provider_health in ("unreachable",):
+        elif c.provider_health in ("unreachable",):
             reject_reason = "provider_unreachable"
         elif c.provider_health in ("invalid_key",):
             reject_reason = "provider_auth_error"
@@ -500,6 +509,8 @@ class SmartRouter:
 
     MAX_CANDIDATE_ATTEMPTS = 20
 
+    MAX_STREAM_ATTEMPTS = 3
+
     def __init__(
         self,
         health_monitor: HealthMonitor | None = None,
@@ -606,30 +617,175 @@ class SmartRouter:
         category: str = "general_chat",
         routing_policy: RoutingPolicy = RoutingPolicy.AUTO,
         commercial_policy: CommercialPolicy | None = None,
+        max_stream_attempts: int | None = None,
     ) -> RouteStreamResult:
         """Route a streaming request. Returns RouteStreamResult with tokens + trace.
 
         The trace is request-scoped: returned to the caller directly rather
         than stored on shared singleton state. This prevents trace corruption
         when multiple streams execute concurrently.
+
+        Stream-time failover (AUTO / ALLOW_FALLBACK only): if the chosen provider
+        fails or returns an empty stream BEFORE the first token, the failure is
+        recorded into the health monitor immediately and routing re-resolves
+        against the next-ranked eligible candidate. Failures that occur AFTER the
+        first token are re-raised without failover to avoid duplicate answers.
         """
         req = self._to_chat_request(request)
         result = await self._resolve_route(req, category, routing_policy, commercial_policy, streaming=True)
         request_id = result.trace.request_id
+        allow_failover = routing_policy in (RoutingPolicy.AUTO, RoutingPolicy.ALLOW_FALLBACK)
+        max_attempts = max_stream_attempts or self.MAX_STREAM_ATTEMPTS
 
         async def _token_generator():
-            try:
-                async for token in result.candidate.adapter.stream(result.request):
-                    yield token
-            except Exception:
-                # Post-token failure: do NOT attempt failover (avoid duplicate answers)
-                raise
+            tokens_emitted = 0
+            attempted: set[str] = set()
+            cur = result
+            attempts = 0
+            last_error: Exception | None = None
+            errored = False
+
+            while True:
+                candidate = cur.candidate
+                chat_req = cur.request
+                key = f"{candidate.provider_instance_id}/{candidate.model_id}"
+                attempted.add(key)
+                attempts += 1
+                start = time.monotonic()
+
+                try:
+                    async for token in candidate.adapter.stream(chat_req):
+                        if tokens_emitted == 0:
+                            self._health_monitor.record_provider_success(
+                                candidate.provider_instance_id,
+                                candidate.model_id,
+                                max((time.monotonic() - start) * 1000, 0.0),
+                            )
+                        tokens_emitted += 1
+                        yield token
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    errored = True
+                    last_error = e
+                    status = self._classify_stream_error(e)
+                    self._health_monitor.record_provider_result(
+                        candidate.provider_instance_id,
+                        candidate.model_id,
+                        status,
+                        sanitize_error(str(e)),
+                        (time.monotonic() - start) * 1000,
+                    )
+                    try:
+                        ei = get_error_intelligence()
+                        ei.capture_exception(
+                            e,
+                            module="smart_router",
+                            request_id=request_id,
+                            provider=candidate.provider_instance_id,
+                            model=candidate.model_id,
+                            message=sanitize_error(str(e)),
+                        )
+                    except Exception:
+                        pass
+                    result.trace.attempts.append({
+                        "provider_id": candidate.provider_instance_id,
+                        "model_id": candidate.model_id,
+                        "outcome": "failed",
+                        "status": status.value,
+                        "error": sanitize_error(str(e)),
+                    })
+                    if tokens_emitted > 0 or not allow_failover:
+                        raise
+                else:
+                    if tokens_emitted > 0:
+                        result.trace.attempts.append({
+                            "provider_id": candidate.provider_instance_id,
+                            "model_id": candidate.model_id,
+                            "outcome": "success",
+                            "status": "ok",
+                        })
+                        return
+                    # Stream completed with zero tokens — treat as empty response.
+                    self._health_monitor.record_provider_result(
+                        candidate.provider_instance_id,
+                        candidate.model_id,
+                        ProviderStatus.ERROR,
+                        "Provider returned empty stream",
+                        (time.monotonic() - start) * 1000,
+                    )
+                    try:
+                        ei = get_error_intelligence()
+                        ei.capture_exception(
+                            RuntimeError("Provider returned empty stream"),
+                            module="smart_router",
+                            request_id=request_id,
+                            provider=candidate.provider_instance_id,
+                            model=candidate.model_id,
+                            message="Provider returned empty stream",
+                        )
+                    except Exception:
+                        pass
+                    result.trace.attempts.append({
+                        "provider_id": candidate.provider_instance_id,
+                        "model_id": candidate.model_id,
+                        "outcome": "empty",
+                        "status": "error",
+                        "error": "empty stream",
+                    })
+                    if not allow_failover:
+                        return
+
+                # Failure (or empty stream) before any token — failover allowed.
+                if attempts >= max_attempts:
+                    if errored:
+                        raise last_error  # type: ignore[misc]
+                    return
+
+                try:
+                    cur = await self._resolve_route(
+                        req, category, routing_policy, commercial_policy,
+                        streaming=True, exclude=attempted,
+                    )
+                    # Merge the latest resolution into the returned trace so it
+                    # reflects the provider that actually served the stream.
+                    result.trace.selected_provider_type = cur.trace.selected_provider_type
+                    result.trace.selected_provider_instance_id = cur.trace.selected_provider_instance_id
+                    result.trace.selected_model_id = cur.trace.selected_model_id
+                    result.trace.fallback_level = cur.trace.fallback_level
+                    result.trace.fallback_reason = cur.trace.fallback_reason
+                except Exception:
+                    if errored:
+                        raise NoEligibleRouteError(
+                            reason=f"Failover exhausted after {len(attempted)} attempt(s): {sanitize_error(str(last_error))[:200]}",
+                            candidates_attempted=len(attempted),
+                        ) from last_error
+                    return
 
         return RouteStreamResult(
             tokens=_token_generator(),
             trace=result.trace,
             request_id=request_id,
+            token_factory=_token_generator,
         )
+
+    @staticmethod
+    def _classify_stream_error(exc: Exception) -> ProviderStatus:
+        """Classify a live adapter stream exception into a ProviderStatus."""
+        if isinstance(exc, (ProviderTimeoutError, TimeoutError)):
+            return ProviderStatus.TIMEOUT
+        err_str = str(exc).lower()
+        if "401" in err_str or "403" in err_str or "unauthorized" in err_str or "invalid key" in err_str or "api key" in err_str:
+            return ProviderStatus.AUTH_FAILED
+        if "429" in err_str or "rate limit" in err_str or "too many requests" in err_str:
+            return ProviderStatus.RATE_LIMITED
+        if "quota" in err_str:
+            return ProviderStatus.QUOTA_EXCEEDED
+        if isinstance(exc, ConnectionError) or "connection" in err_str or "connect error" in err_str:
+            return ProviderStatus.OFFLINE
+        if "timed out" in err_str or "timeout" in err_str:
+            return ProviderStatus.TIMEOUT
+        return ProviderStatus.ERROR
 
     # -- Core routing: resolve_route() --------------------------------------
 
@@ -640,6 +796,7 @@ class SmartRouter:
         routing_policy: RoutingPolicy,
         commercial_policy: CommercialPolicy | None,
         streaming: bool = False,
+        exclude: set[str] | None = None,
     ) -> _RouteResolution:
         """Shared candidate selection for both route() and route_stream()."""
         cp = commercial_policy or self._commercial_policy
@@ -668,10 +825,10 @@ class SmartRouter:
 
         # === STRICT: exact route only ===
         if routing_policy == RoutingPolicy.STRICT:
-            return await self._resolve_strict(request, all_candidates, required_caps, cp, trace)
+            return await self._resolve_strict(request, all_candidates, required_caps, cp, trace, exclude=exclude)
 
         # === AUTO / ALLOW_FALLBACK: failover allowed ===
-        return await self._resolve_auto(request, category, all_candidates, required_caps, cp, trace)
+        return await self._resolve_auto(request, category, all_candidates, required_caps, cp, trace, exclude=exclude)
 
     # -- STRICT resolution --------------------------------------------------
 
@@ -682,6 +839,7 @@ class SmartRouter:
         required_caps: list[str],
         commercial_policy: CommercialPolicy,
         trace: RoutingTrace,
+        exclude: set[str] | None = None,
     ) -> _RouteResolution:
         """STRICT: use exactly the requested route. No fallback."""
         requested_instance = request.provider_id
@@ -689,7 +847,7 @@ class SmartRouter:
 
         if not requested_instance:
             # No explicit selection — use capability ranking but still strict (no failover)
-            eligible = _filter_eligible(all_candidates, required_caps, commercial_policy, trace)
+            eligible = _filter_eligible(all_candidates, required_caps, commercial_policy, trace, exclude=exclude)
             if not eligible:
                 raise NoEligibleRouteError(
                     reason="No eligible route found (STRICT, no explicit selection)",
@@ -730,7 +888,7 @@ class SmartRouter:
         candidate = matching[0]
 
         # Validate eligibility
-        eligible = _filter_eligible([candidate], required_caps, commercial_policy, trace)
+        eligible = _filter_eligible([candidate], required_caps, commercial_policy, trace, exclude=exclude)
         if not eligible:
             reason = candidate.rejection_reason()
             if reason.startswith("provider_auth"):
@@ -796,6 +954,7 @@ class SmartRouter:
         required_caps: list[str],
         commercial_policy: CommercialPolicy,
         trace: RoutingTrace,
+        exclude: set[str] | None = None,
     ) -> _RouteResolution:
         """AUTO: failover through the hierarchy."""
         requested_instance = request.provider_id
@@ -803,7 +962,7 @@ class SmartRouter:
         attempted: set[str] = set()
 
         # Filter all candidates to eligible only
-        eligible = _filter_eligible(all_candidates, required_caps, commercial_policy, trace)
+        eligible = _filter_eligible(all_candidates, required_caps, commercial_policy, trace, exclude=exclude)
         ranked = _rank_candidates(eligible, self._strategy)
 
         fallback_level = 0
@@ -905,7 +1064,7 @@ class SmartRouter:
                     and (not override.model_id or c.model_id == override.model_id)
                 ]
                 # Filter to eligible only
-                eligible_overrides = _filter_eligible(override_candidates, [], commercial_policy, trace)
+                eligible_overrides = _filter_eligible(override_candidates, [], commercial_policy, trace, exclude=exclude)
                 if eligible_overrides:
                     candidate = eligible_overrides[0]
                     attempted.add(f"{candidate.provider_instance_id}/{candidate.model_id}")
@@ -1191,10 +1350,15 @@ class RouteStreamResult:
     Holds both the token generator AND the routing trace so that callers
     receive the trace directly instead of reading from shared singleton state.
     This prevents trace corruption under concurrent streaming requests.
+
+    ``token_factory`` returns a FRESH token generator on each call so retry
+    loops (e.g. conversation.stream.StreamManager) can start a new stream per
+    attempt instead of re-iterating an already-exhausted generator.
     """
     tokens: AsyncIterator[str]
     trace: RoutingTrace
     request_id: str
+    token_factory: Callable[[], AsyncIterator[str]] | None = None
 
 
 @dataclass
