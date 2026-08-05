@@ -1,5 +1,5 @@
 ## Objective
-- **Phases A, A.5, B, C, C.6, C.7, and C.8 are COMPLETE.** EVE v2.0 is the AI Operating System kernel. Phase C.8 hardened the kernel to production-quality alpha. 464/464 tests passing.
+- **Phases A, A.5, B, C, C.6, C.7, and C.8 are COMPLETE.** EVE v2.0 is the AI Operating System kernel. Phase C.8 hardened the kernel to production-quality alpha. Phase D1 (Audio Core), D2 (VAD & Listening Intelligence), D3 (Real-Time Speech Pipeline), D4 (Streaming Speech Recognition), D5 (Streaming Text-to-Speech), D6 (Continuous Conversation), D7 (Wake Word Engine), D8 (Voice Identity System), and D9 (VoiceOS Integration & Experience Validation) complete. 1348/1348 provider framework tests passing.
 
 ## Important Details
 - Framework already exists and is fully implemented — do NOT redesign it, use it
@@ -56,12 +56,15 @@
   - P6 Frontend: Recovery Center tab (aioTypes + "recovery" tab + AioErrorEvent/AioErrorStats/AioTimelineEvent), aioApi.ts (fetchErrors/fetchErrorStats/fetchErrorTimeline/fetchErrorRecoveries/fetchErrorDetail/fetchErrorReport/clearErrors), AioStore (errors/errorStats/errorTimeline state + loadAll fetch), RecoveryView.tsx (stats grid, filters, error list, detail panel, timeline, copy MD/JSON/Plain), AIOperationsCenter.tsx VIEW_MAP wired, ai-operations.css Recovery Center styles, ConversationErrorState.tsx enhanced with errorData (category/likely_cause/recovery_suggestions/provider/model) + "View in Recovery Center" button.
   - 38 tests: taxonomy, classifier (route errors, provider status, HTTP, exceptions, message hints, module heuristics, fallback), service (capture, bounded ring, persistence round-trip, stats, timeline, recoveries, report formats, clear, bad file tolerance), stream event adapter, recovery engine.
   - Full regression: 318 passed in provider_framework; `tsc --noEmit` clean; desktop mirror parity verified for all backend source files (error_intelligence package + errors router + core files).
+- **Sprint D8 (Voice Identity System) — DONE**: `voice/identity/` package — models.py (VoiceProfile, PersonalityType, SpeakingStyle, AdaptationContext), events.py (8 event types), personality.py (8 built-in profiles: Professional, Friendly, Technical, Minimal, Companion, Teacher, Creative, Executive), adaptation.py (ContextAdapter, context-driven auto-adaptation, force_profile, history tracking), pronunciation.py (PronunciationDictionary, 10 default entries, import/export JSON, case-insensitive, thread-safe), preferences.py (PreferenceManager, file-based persistence, clamped setters), metrics.py (IdentityMetrics, adaptations/context switches/pronunciation lookups, daily reset), manager.py (VoiceIdentityManager, single entry point, profile CRUD, switch, adapt, format_response, export/import), __init__.py. Desktop mirror verified. 110 tests. Total 1207/1207 provider_framework tests.
+- **Sprint D9 (VoiceOS Integration & Experience Validation) — DONE**: 7 D9 integration test files — test_e2e_workflows.py (10 end-to-end scenarios, 23 tests), test_cross_system.py (28 tests), test_failure_injection.py (24 tests), test_stability.py (16 tests, 1000+ iterations), test_performance.py (18 tests), test_desktop_integration.py (16 tests), test_security.py (16 tests). 141 new tests. Full regression: 1348/1348 pass, zero regressions. Reports written: VOICEOS_INTEGRATION_REPORT.md, VOICEOS_STABILITY_REPORT.md, VOICEOS_PERFORMANCE_REPORT.md, VOICEOS_USER_EXPERIENCE_REPORT.md, VOICEOS_BETA_READINESS_REPORT.md, EVE_V2.0_BETA_CERTIFICATION.md. AGENTS.md updated.
 
 ### Blocked
 - Cannot start the full backend from within the tool (PowerShell Start-Process killed by sandbox). Use `py_compile` + `import` tests. Full `pytest tests/` aggregate run also blocked by pre-existing INTERNALERROR path bug (see Important Details).
 
 ## Next Move
-- v1.2.3 complete (P1–P7). Next release steps: run `npm run build` + manual smoke test of the running app, then tag v1.2.3 (only with explicit approval).
+- Sprint D9 (VoiceOS Integration & Experience Validation) complete. Phase D COMPLETE. EVE v2.0 is BETA READY.
+- Phase D10 (Real-World Beta Validation) complete. All 14 documentation files generated. 1348/1348 tests pass. Ready for manual validation.
 
 ## Relevant Files
 - `src/backend/aios/api/app.py`: shared HealthMonitor (split-brain fixed), `start_background_check` + background model refresh wired in lifespan, 500 exception handler, errors_router registered.
@@ -82,6 +85,9 @@
 - `src/backend/aios/conversation/stream.py`: `TokenSource` union, factory-based fresh generator per retry.
 - `src/backend/aios/conversation/manager.py`: `_capture_error()` (lazy import), `_enrich_stream_error()`, instrumented stream_message error paths.
 - `src/backend/aios/voice/stt.py`: error path error_intelligence capture.
+- `src/backend/aios/voice/conversation/`: `__init__.py`, `events.py` (Turn, ConversationEvent, 12 event types), `state.py` (ConversationState enum, 8 states, CONVERSATION_TRANSITIONS), `session.py` (ConversationSession, ConversationSessionConfig, lifecycle management, follow-up detection, barge-in, context), `metrics.py` (ConversationMetrics, percentiles, durations), `manager.py` (ConversationSessionManager, TurnManager, session lifecycle, timeout detection, event dispatch).
+- `src/backend/aios/voice/wakeword/`: `__init__.py`, `models.py` (WakePhrase, WakeWordConfig, DetectionResult, SensitivityLevel, PowerMode, SENSITIVITY_PROFILES), `events.py` (WakeWordEvent, 7 event types), `metrics.py` (WakeWordMetrics, activations_today, percentiles), `detector.py` (WakeWordDetector, AudioFrame, energy analysis, adaptive threshold, cooldown, false-positive reduction, local-only processing), `session.py` (WakeWordSession, WakeSessionState, lifecycle, timeout, false-positive tracking), `engine.py` (WakeWordEngine, orchestration, power management, privacy mode, activation callback).
+- `src/backend/aios/voice/identity/`: `__init__.py`, `models.py` (VoiceProfile, PersonalityType, SpeakingStyle, AdaptationContext), `events.py` (8 event types), `personality.py` (8 built-in profiles), `adaptation.py` (ContextAdapter, context-driven auto-adaptation), `pronunciation.py` (PronunciationDictionary, 10 default entries), `preferences.py` (PreferenceManager, file-based persistence), `metrics.py` (IdentityMetrics, daily reset), `manager.py` (VoiceIdentityManager, single entry point).
 - `src/backend/aios/vision/engine.py`: `analyze_screen`/`full_observation` try/except capture.
 - `src/backend/aios/workspace/manager.py`: `start()` try/except capture.
 - `src/backend/aios/plugins/loader.py`: per-plugin failure capture.
@@ -90,7 +96,7 @@
 - `src/frontend/src/components/conversation/ConversationErrorState.tsx`: enhanced with errorData (category/likely_cause/recovery_suggestions/provider/model) + "View in Recovery Center" button.
 - `src/frontend/src/components/providers/`: types.ts, ManageProvidersPage, ProviderConfigurationDialog (metadata-driven, supports_organization fix), AddProviderDialog (deepinfra icon), AIProviderCard, SmartRoutingPanel (categories from API).
 - `src/frontend/src/services/api.ts`: provider + routing + onboard helpers.
-- `tests/provider_framework/`: registry/factory/onboarding/contract + W2-W8 test files (capability_extraction, commercial_policy, routing_enhancements, health_score, routing_categories, model_refresh, fallback_chain, error_intelligence) + P0 hardening tests (test_p0_hardening.py).
+- `tests/provider_framework/`: registry/factory/onboarding/contract + W2-W8 test files (capability_extraction, commercial_policy, routing_enhancements, health_score, routing_categories, model_refresh, fallback_chain, error_intelligence) + P0 hardening tests (test_p0_hardening.py) + D8 identity tests (test_identity.py).
 - `EVE_V2.0_ALPHA_HARDENING_REPORT.md`: Phase C.8 hardening report.
 - `EVE_V2.0_ALPHA_FINAL_REPORT.md`: Final alpha report — 🟢 READY FOR BETA.
 - `desktop/src-tauri/backend/aios/`: mirror target for all backend changes.
