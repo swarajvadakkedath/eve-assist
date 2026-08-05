@@ -228,6 +228,24 @@ class TestService:
         assert events[0].message == "hello"
         assert events[0].category == ErrorCategory.NETWORK
 
+    def test_persistence_round_trip_enum_coercion(self, tmp_path):
+        path = tmp_path / "errors.json"
+        svc = ErrorIntelligenceService(errors_path=path, max_events=10)
+        svc.capture("net fail", category=ErrorCategory.NETWORK, severity=Severity.HIGH, module="m")
+        svc.capture("quota", category=ErrorCategory.RATE_LIMIT, severity=Severity.MEDIUM, module="m", provider="nvidia")
+        reloaded = ErrorIntelligenceService(errors_path=path, max_events=10)
+        for e in reloaded.list_events():
+            assert isinstance(e.category, ErrorCategory)
+            assert isinstance(e.severity, Severity)
+        stats = reloaded.stats()
+        assert stats["total"] == 2
+        assert stats["by_category"]["NETWORK"] == 1
+        assert stats["by_category"]["RATE_LIMIT"] == 1
+        assert stats["by_severity"]["HIGH"] == 1
+        filtered = reloaded.list_events(category="RATE_LIMIT", severity="MEDIUM")
+        assert len(filtered) == 1
+        assert filtered[0].provider == "nvidia"
+
     def test_stats(self, tmp_path):
         svc = ErrorIntelligenceService(errors_path=tmp_path / "errors.json", max_events=50)
         for i in range(3):

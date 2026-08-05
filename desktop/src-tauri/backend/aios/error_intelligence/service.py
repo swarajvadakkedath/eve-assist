@@ -41,6 +41,21 @@ class ErrorIntelligenceService:
 
     # -- persistence --------------------------------------------------------
 
+    @staticmethod
+    def _event_from_record(record: dict[str, Any]) -> ErrorEvent:
+        """Rebuild an ErrorEvent from a persisted dict, coercing enum fields.
+
+        Persistence writes ``category``/``severity`` as strings (``.value``), so a
+        naive ``ErrorEvent(**record)`` leaves them as plain strings and any later
+        ``.value`` access (stats, filtering) raises AttributeError.
+        """
+        data = dict(record)
+        if not isinstance(data.get("category"), ErrorCategory):
+            data["category"] = ErrorCategory(data["category"])
+        if not isinstance(data.get("severity"), Severity):
+            data["severity"] = Severity(data["severity"])
+        return ErrorEvent(**data)
+
     def _load(self) -> None:
         try:
             if not self._errors_path.exists():
@@ -48,7 +63,14 @@ class ErrorIntelligenceService:
             with open(self._errors_path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
             records = data.get("errors", []) if isinstance(data, dict) else data
-            events = [ErrorEvent(**r) for r in records if isinstance(r, dict) and "error_id" in r]
+            events: list[ErrorEvent] = []
+            for r in records:
+                if not isinstance(r, dict) or "error_id" not in r:
+                    continue
+                try:
+                    events.append(self._event_from_record(r))
+                except Exception:
+                    continue
             self._events = events[-(self._max_events):]
         except Exception:
             self._events = []

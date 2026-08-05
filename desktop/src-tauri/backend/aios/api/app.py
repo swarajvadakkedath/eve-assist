@@ -143,6 +143,15 @@ async def lifespan(app: FastAPI):
     model_refresh_interval = settings.model_refresh_interval if hasattr(settings, "model_refresh_interval") else None
     if model_refresh_interval:
         provider_manager.start_background_refresh(interval=model_refresh_interval)
+    # EVE Agent Adapter — bridges AgentRuntimes (Hermes, native, future) to
+    # the Smart Router / Provider Manager / Health Monitor / Tool Manager.
+    from aios.agent.adapter import EveAgentAdapter
+    agent_adapter = EveAgentAdapter(
+        smart_router=smart_router,
+        provider_manager=provider_manager,
+        health_monitor=health_monitor,
+        tool_manager=tool_manager,
+    )
     memory_persistence_path = os.path.join(os.path.expanduser("~"), ".eve", "memory.json")
     memory = MemorySystem(event_bus=event_bus, persistence_path=memory_persistence_path)
     planner = Planner(capability_registry=capability_registry)
@@ -290,6 +299,7 @@ async def lifespan(app: FastAPI):
     app.state.capability_registry = capability_registry
     app.state.smart_router = smart_router
     app.state.provider_manager = provider_manager
+    app.state.agent_adapter = agent_adapter
     app.state.memory = memory
     app.state.planner = planner
     app.state.context = context
@@ -419,6 +429,10 @@ def register_routes(app: FastAPI):
 
     from aios.api.errors import router as errors_router
     app.include_router(errors_router, prefix="/api/v1")
+
+    # OpenAI-compatible inference surface (no /api/v1 prefix — /v1/...).
+    from aios.api.openai_compat import router as openai_compat_router
+    app.include_router(openai_compat_router)
 
     @app.get("/api/v1/system/health")
     async def health_check(request: Request):
