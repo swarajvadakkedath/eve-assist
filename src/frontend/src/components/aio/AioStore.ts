@@ -185,6 +185,21 @@ async function pollDiagnostics() {
   } catch {}
 }
 
+async function pollErrors() {
+  try {
+    const [errorsResult, errorStats, timelineResult] = await Promise.all([
+      fetchErrors(100),
+      fetchErrorStats(),
+      fetchErrorTimeline(100),
+    ]);
+    state.errors = errorsResult.errors || [];
+    state.errorStats = errorStats;
+    state.errorTimeline = timelineResult.timeline || [];
+    state.version++;
+    notify();
+  } catch {}
+}
+
 let statusUnsubscribe: (() => void) | null = null;
 let lastStatusReady = false;
 
@@ -196,6 +211,7 @@ async function start() {
     setInterval(pollHealth, 10_000),
     setInterval(pollDiagnostics, 15_000),
     setInterval(pollProviders, 30_000),
+    setInterval(pollErrors, 30_000),
     setInterval(pollModels, 60_000),
   ];
   // Re-run loadAll when the backend transitions back to ready after a restart.

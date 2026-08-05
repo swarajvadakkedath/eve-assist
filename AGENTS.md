@@ -1,5 +1,5 @@
 ## Objective
-- Complete EVE v1.2.3 "AI Error Intelligence": centralized error capture → classification (21 categories) → human explanation → recovery suggestions → safe auto-recovery → immediate provider-health feed → diagnostics logging → Recovery Center tab in AI Operations Center → per-error copy-diagnostics (MD/JSON/text). Also fixes v1.2.3 defects: "The provider returned an empty response" masking + broken Retry.
+- **Phases A, A.5, B, C, C.6, C.7, and C.8 are COMPLETE.** EVE v2.0 is the AI Operating System kernel. Phase C.8 hardened the kernel to production-quality alpha. 464/464 tests passing.
 
 ## Important Details
 - Framework already exists and is fully implemented — do NOT redesign it, use it
@@ -90,7 +90,9 @@
 - `src/frontend/src/components/conversation/ConversationErrorState.tsx`: enhanced with errorData (category/likely_cause/recovery_suggestions/provider/model) + "View in Recovery Center" button.
 - `src/frontend/src/components/providers/`: types.ts, ManageProvidersPage, ProviderConfigurationDialog (metadata-driven, supports_organization fix), AddProviderDialog (deepinfra icon), AIProviderCard, SmartRoutingPanel (categories from API).
 - `src/frontend/src/services/api.ts`: provider + routing + onboard helpers.
-- `tests/provider_framework/`: registry/factory/onboarding/contract + W2-W8 test files (capability_extraction, commercial_policy, routing_enhancements, health_score, routing_categories, model_refresh, fallback_chain, error_intelligence).
+- `tests/provider_framework/`: registry/factory/onboarding/contract + W2-W8 test files (capability_extraction, commercial_policy, routing_enhancements, health_score, routing_categories, model_refresh, fallback_chain, error_intelligence) + P0 hardening tests (test_p0_hardening.py).
+- `EVE_V2.0_ALPHA_HARDENING_REPORT.md`: Phase C.8 hardening report.
+- `EVE_V2.0_ALPHA_FINAL_REPORT.md`: Final alpha report — 🟢 READY FOR BETA.
 - `desktop/src-tauri/backend/aios/`: mirror target for all backend changes.
 - `EVE_AI_ECOSYSTEM_REPORT.md`: full ecosystem report for v1.2.2.
 - `EVE_V1.2.3_CHAT_TOOL_AND_RETRY_REPORT.md`: investigation report for v1.2.3 defects.

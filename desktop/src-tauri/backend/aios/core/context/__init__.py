@@ -1,7 +1,50 @@
-"""Context Engine — event-driven observer for workspace, app, and file context."""
+"""Context Engine — the kernel of the AI Operating System.
 
-from .models import Context, ProjectInfo, ActivityType
+ExecutionContext is the universal context object passed to every EVE subsystem
+and Hermes.  Hermes never directly accesses Windows, clipboard, browser,
+workspace, git, desktop, or any OS service.  Everything flows through
+ExecutionContext.
+"""
+
+from .models import (
+    ExecutionContext,
+    ContextProvider,
+    ContextScope,
+    ActivityType,
+    ProjectInfo,
+    ClipboardContext,
+    WindowContext,
+    WorkspaceContext,
+    GitContext,
+    BrowserContext,
+    DesktopContext,
+    VoiceContext,
+    MemoryContext,
+    ProviderHealthContext,
+    CalendarContext,
+    SelectionContext,
+    ApplicationContext,
+    ToolContext,
+    NotificationContext,
+    ProviderStatus,
+)
 from .engine import ContextEngine
+from .providers import (
+    ClipboardProvider,
+    WindowProvider,
+    WorkspaceProvider,
+    GitProvider,
+    BrowserProvider,
+    DesktopProvider,
+    VoiceProvider,
+    MemoryProvider,
+    ProviderHealthProvider,
+    CalendarProvider,
+    SelectionProvider,
+    ApplicationProvider,
+    ToolProvider,
+    NotificationProvider,
+)
 from .project_detector import (
     detect_project_from_file,
     detect_project_from_path,
@@ -12,10 +55,41 @@ from .project_detector import (
 from .activity_detector import detect_activity, extract_active_file
 
 __all__ = [
-    "Context",
-    "ProjectInfo",
-    "ActivityType",
+    "ExecutionContext",
+    "ContextProvider",
+    "ContextScope",
     "ContextEngine",
+    "ActivityType",
+    "ProjectInfo",
+    "ClipboardContext",
+    "WindowContext",
+    "WorkspaceContext",
+    "GitContext",
+    "BrowserContext",
+    "DesktopContext",
+    "VoiceContext",
+    "MemoryContext",
+    "ProviderHealthContext",
+    "CalendarContext",
+    "SelectionContext",
+    "ApplicationContext",
+    "ToolContext",
+    "NotificationContext",
+    "ProviderStatus",
+    "ClipboardProvider",
+    "WindowProvider",
+    "WorkspaceProvider",
+    "GitProvider",
+    "BrowserProvider",
+    "DesktopProvider",
+    "VoiceProvider",
+    "MemoryProvider",
+    "ProviderHealthProvider",
+    "CalendarProvider",
+    "SelectionProvider",
+    "ApplicationProvider",
+    "ToolProvider",
+    "NotificationProvider",
     "detect_project_from_file",
     "detect_project_from_path",
     "infer_project_type_from_file",

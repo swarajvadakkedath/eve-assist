@@ -72,6 +72,9 @@ class ConversationManager(IConversationService):
         context_engine: Any | None = None,
         repository: Any | None = None,
         execution_engine: Any | None = None,
+        memory_mediator: Any | None = None,
+        tool_mediator: Any | None = None,
+        recovery_engine: Any | None = None,
     ):
         self._ai_router = ai_router
         self._memory = memory_system
@@ -81,6 +84,9 @@ class ConversationManager(IConversationService):
         self._context_engine = context_engine
         self._repository = repository
         self._execution_engine = execution_engine
+        self._memory_mediator = memory_mediator
+        self._tool_mediator = tool_mediator
+        self._recovery_engine = recovery_engine
 
         self._conversations: dict[str, Conversation] = {}
         self._messages: dict[str, list[Message]] = {}
@@ -780,6 +786,14 @@ class ConversationManager(IConversationService):
             return {}
 
     async def _retrieve_memories(self, query: str, conversation_id: str) -> list:
+        if self._memory_mediator is not None:
+            try:
+                ctx = await self._memory_mediator.recall(
+                    query, scope="session", conversation_id=conversation_id
+                )
+                return ctx.memories if hasattr(ctx, "memories") else []
+            except Exception as e:
+                logger.warning("memory.mediator_recall_failed", error=str(e)[:200])
         if not self._memory:
             return []
         try:
@@ -817,6 +831,17 @@ class ConversationManager(IConversationService):
             return []
 
     async def _update_memory(self, user_input: str, response: str, conversation_id: str) -> None:
+        if self._memory_mediator is not None:
+            try:
+                await self._memory_mediator.store(
+                    content=f"User: {user_input}\nAssistant: {response[:200]}",
+                    scope="session",
+                    conversation_id=conversation_id,
+                    importance=0.5,
+                )
+                return
+            except Exception as e:
+                logger.warning("memory.mediator_store_failed", error=str(e)[:200])
         if not self._memory:
             return
         try:
@@ -852,7 +877,7 @@ class ConversationManager(IConversationService):
         try:
             from aios.error_intelligence import get_error_intelligence
             svc = get_error_intelligence()
-            svc.capture_exception(
+            recorded = svc.capture_exception(
                 exc,
                 module=module,
                 conversation_id=conversation_id,
@@ -861,6 +886,21 @@ class ConversationManager(IConversationService):
                 model=model,
                 message=message,
             )
+            if self._recovery_engine is not None and recorded is not None:
+                try:
+                    from aios.error_intelligence.classifier import classify_error
+                    classification = classify_error(
+                        message=message or str(exc),
+                        module=module,
+                    )
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.ensure_future(
+                            self._recovery_engine.attempt_recovery(recorded, classification)
+                        )
+                except Exception:
+                    pass
         except Exception:
             pass
 

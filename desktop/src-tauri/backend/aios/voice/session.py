@@ -45,6 +45,7 @@ class VoiceSession:
         self._listener_task: asyncio.Task | None = None
         self._barge_in = False
         self._lock = asyncio.Lock()
+        self._personality_manager = None
 
     @property
     def state(self) -> VoiceSessionState:
@@ -154,8 +155,13 @@ class VoiceSession:
                     elif event["type"] == "token":
                         response_text = event.get("data", {}).get("text", "")
                     if response_text.strip():
+                        formatted = response_text
+                        if self._personality_manager is not None:
+                            formatted = self._personality_manager.format_response(
+                                response_text, context="voice"
+                            )
                         if not self._barge_in:
-                            await self.start_speaking(response_text)
+                            await self.start_speaking(formatted)
         except Exception as e:
             logger.error("voice.process_transcript_failed", error=str(e))
             await self._events.publish_error(self._state.session_id, str(e))

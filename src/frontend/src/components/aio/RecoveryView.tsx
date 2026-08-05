@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useAioStore } from "./AioStore";
+import { useAioStore, aioStore } from "./AioStore";
 import { fetchErrorReport, clearErrors } from "./aioApi";
 import type { AioErrorEvent } from "./aioTypes";
 
@@ -90,6 +90,7 @@ export default function RecoveryView() {
             <option key={sev} value={sev}>{sev}</option>
           ))}
         </select>
+        <button className="aio-btn" onClick={() => aioStore.forceRefresh()}>Refresh</button>
         <button className="aio-btn aio-btn-danger" onClick={handleClear}>Clear History</button>
       </div>
 

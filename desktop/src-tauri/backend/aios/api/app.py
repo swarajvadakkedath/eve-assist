@@ -3,7 +3,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
@@ -66,6 +66,19 @@ from aios.vision.session import VisionSession
 from aios.vision.pipeline import VisionPipeline
 from aios.vision.events import VisionEventPublisher
 from aios.vision.models import VisionConfig, VisionProvider, OCREngine
+from aios.core.context.providers import (
+    ClipboardProvider, WindowProvider, WorkspaceProvider, GitProvider,
+    BrowserProvider, DesktopProvider, VoiceProvider, MemoryProvider,
+    ProviderHealthProvider, CalendarProvider, SelectionProvider,
+    ApplicationProvider, ToolProvider, NotificationProvider,
+)
+from aios.core.context.policy import ContextPolicy
+from aios.core.context import providers as context_providers
+from aios.mediation.memory import MemoryMediator
+from aios.mediation.tools import ToolMediator
+from aios.error_intelligence.recovery_engine import RecoveryEngine
+from aios.personality.voice import VoicePersonalityManager
+from aios.hermes_bridge.events import HermesEventsBridge
 
 logger = None
 
@@ -154,6 +167,7 @@ async def lifespan(app: FastAPI):
     )
     memory_persistence_path = os.path.join(os.path.expanduser("~"), ".eve", "memory.json")
     memory = MemorySystem(event_bus=event_bus, persistence_path=memory_persistence_path)
+    memory_mediator = MemoryMediator(memory_system=memory)
     planner = Planner(capability_registry=capability_registry)
     from aios.core.windows.adapter import WindowsAdapter
     windows_adapter = WindowsAdapter(
@@ -166,6 +180,18 @@ async def lifespan(app: FastAPI):
         poll_interval=settings.context_poll_interval,
         memory_store=memory,
     )
+    # Register all ContextProviders (14 total) — each owns one context source.
+    context.register_provider(ClipboardProvider())
+    context.register_provider(WindowProvider(windows_adapter=windows_adapter))
+    context.register_provider(WorkspaceProvider())
+    context.register_provider(GitProvider())
+    context.register_provider(BrowserProvider())
+    context.register_provider(MemoryProvider(memory_system=memory))
+    context.register_provider(CalendarProvider())
+    context.register_provider(SelectionProvider())
+    context.register_provider(ApplicationProvider())
+    context.register_provider(ToolProvider(tool_manager=tool_manager))
+    context.register_provider(NotificationProvider())
 
     conversation_repo = FileConversationRepository()
     conversation_repo.recover()
@@ -173,6 +199,13 @@ async def lifespan(app: FastAPI):
     workspace_manager = WorkspaceManager(event_bus=event_bus, memory=memory)
     workspace_service = WorkspaceService(workspace_manager)
     await workspace_manager.start()
+
+    tool_mediator = ToolMediator(tool_manager=tool_manager, event_bus=event_bus)
+    recovery_engine = RecoveryEngine(
+        health_monitor=health_monitor,
+        provider_manager=provider_manager,
+        smart_router=smart_router,
+    )
 
     conversation_manager = ConversationManager(
         ai_router=smart_router,
@@ -182,11 +215,24 @@ async def lifespan(app: FastAPI):
         capability_registry=capability_registry,
         context_engine=context,
         repository=conversation_repo,
+        memory_mediator=memory_mediator,
+        tool_mediator=tool_mediator,
+        recovery_engine=recovery_engine,
     )
     await conversation_manager.load_from_repository()
+
+    from aios.conversation.pipeline import ConversationPipeline, DefaultPipelineHooks
+    conversation_pipeline = ConversationPipeline(
+        conversation_manager=conversation_manager,
+        hooks=DefaultPipelineHooks(),
+        event_bus=event_bus,
+        context_engine=context,
+    )
+
     conversation_service = ConversationService(
         manager=conversation_manager,
         event_bus=event_bus,
+        pipeline=conversation_pipeline,
     )
 
     register_builtin_tools(tool_manager)
@@ -202,6 +248,13 @@ async def lifespan(app: FastAPI):
     await window_manager.initialize(settings_store)
     startup_manager = StartupManager()
     await startup_manager.initialize(settings_store)
+
+    # Register context providers that depend on desktop services
+    context.register_provider(DesktopProvider(
+        status_service=status_service,
+        hotkey_manager=hotkey_manager,
+    ))
+    context.register_provider(ProviderHealthProvider(health_monitor=health_monitor))
 
     execution_engine = ExecutionEngine(
         planner=planner,
@@ -246,6 +299,9 @@ async def lifespan(app: FastAPI):
         conversation_service=conversation_service,
         event_publisher=voice_event_publisher,
     )
+    personality_manager = VoicePersonalityManager()
+    voice_session._personality_manager = personality_manager
+    context.register_provider(VoiceProvider())
 
     vision_config = VisionConfig(
         provider=VisionProvider(settings.vision_provider or "builtin"),
@@ -293,6 +349,10 @@ async def lifespan(app: FastAPI):
         event_bus=event_bus,
     )
 
+    hermes_bridge = HermesEventsBridge(event_bus=event_bus)
+    from aios.api.hermes_events import configure as configure_hermes_events
+    configure_hermes_events(hermes_bridge)
+
     app.state.browser_engine = browser_engine
     app.state.event_bus = event_bus
     app.state.tool_manager = tool_manager
@@ -330,7 +390,14 @@ async def lifespan(app: FastAPI):
     app.state.performance_monitor = performance_monitor
     app.state.log_viewer = log_viewer
     app.state.windows_adapter = windows_adapter
+    app.state.memory_mediator = memory_mediator
+    app.state.tool_mediator = tool_mediator
+    app.state.recovery_engine = recovery_engine
+    app.state.personality_manager = personality_manager
+    app.state.hermes_bridge = hermes_bridge
+    app.state.context_policy = ContextPolicy()
 
+    await context.start()
     logger.info("aios.started", version="1.2.1")
     await event_bus.publish("system:startup", {"version": "1.2.1"})
 
@@ -339,6 +406,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    await context.stop()
     await hot_reload.stop_polling()
     await performance_monitor.stop_monitoring()
     await voice_session.cleanup()
@@ -391,6 +459,7 @@ def create_app() -> FastAPI:
 
 
 def register_routes(app: FastAPI):
+    from aios.api.auth_deps import verify_auth
     from aios.api.permissions import router as permissions_router
 
     from aios.api.chat import router as chat_router
@@ -399,36 +468,39 @@ def register_routes(app: FastAPI):
     from aios.api.settings import router as settings_router
     from aios.api.plugins import router as plugins_router
 
-    app.include_router(chat_router, prefix="/api/v1")
-    app.include_router(tools_router, prefix="/api/v1")
-    app.include_router(capabilities_router, prefix="/api/v1")
-    app.include_router(settings_router, prefix="/api/v1")
-    app.include_router(plugins_router, prefix="/api/v1")
-    app.include_router(permissions_router, prefix="/api/v1")
+    app.include_router(chat_router, prefix="/api/v1", dependencies=[Depends(verify_auth)])
+    app.include_router(tools_router, prefix="/api/v1", dependencies=[Depends(verify_auth)])
+    app.include_router(capabilities_router, prefix="/api/v1", dependencies=[Depends(verify_auth)])
+    app.include_router(settings_router, prefix="/api/v1", dependencies=[Depends(verify_auth)])
+    app.include_router(plugins_router, prefix="/api/v1", dependencies=[Depends(verify_auth)])
+    app.include_router(permissions_router, prefix="/api/v1", dependencies=[Depends(verify_auth)])
 
     from aios.api.memory import router as memory_router
-    app.include_router(memory_router, prefix="/api/v1")
+    app.include_router(memory_router, prefix="/api/v1", dependencies=[Depends(verify_auth)])
 
     from aios.api.desktop import router as desktop_router
     app.include_router(desktop_router)
 
     from aios.api.execution import router as execution_router
-    app.include_router(execution_router)
+    app.include_router(execution_router, dependencies=[Depends(verify_auth)])
 
     from aios.api.workspace import router as workspace_router
-    app.include_router(workspace_router, prefix="/api/v1")
+    app.include_router(workspace_router, prefix="/api/v1", dependencies=[Depends(verify_auth)])
 
     from aios.api.voice import router as voice_router
-    app.include_router(voice_router)
+    app.include_router(voice_router, dependencies=[Depends(verify_auth)])
 
     from aios.api.vision import router as vision_router
-    app.include_router(vision_router)
+    app.include_router(vision_router, dependencies=[Depends(verify_auth)])
 
     from aios.api.providers import router as providers_router
-    app.include_router(providers_router)
+    app.include_router(providers_router, dependencies=[Depends(verify_auth)])
 
     from aios.api.errors import router as errors_router
-    app.include_router(errors_router, prefix="/api/v1")
+    app.include_router(errors_router, prefix="/api/v1", dependencies=[Depends(verify_auth)])
+
+    from aios.api.hermes_events import router as hermes_events_router
+    app.include_router(hermes_events_router, prefix="/api/v1", dependencies=[Depends(verify_auth)])
 
     # OpenAI-compatible inference surface (no /api/v1 prefix — /v1/...).
     from aios.api.openai_compat import router as openai_compat_router

@@ -145,16 +145,30 @@ class FakeToolManager:
         return {"success": True, "result": f"ran {name}"}
 
 
+class FakeToolMediator:
+    def __init__(self, tool_manager=None):
+        self._tool_manager = tool_manager
+
+    async def execute(self, request):
+        from aios.mediation.tools import ToolCallResult
+        result = await self._tool_manager.execute(request.tool_id, request.params)
+        if isinstance(result, dict) and not result.get("success", True):
+            return ToolCallResult(success=False, tool_id=request.tool_id, error=result.get("error", "unknown"))
+        data = result.get("result", result) if isinstance(result, dict) else result
+        return ToolCallResult(success=True, tool_id=request.tool_id, data=data)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 def make_adapter(**kwargs) -> EveAgentAdapter:
+    tool_manager = kwargs.get("tool_manager", FakeToolManager())
     return EveAgentAdapter(
         smart_router=kwargs.get("smart_router", FakeSmartRouter()),
         provider_manager=kwargs.get("provider_manager", FakeProviderManager()),
         health_monitor=kwargs.get("health_monitor", FakeHealthMonitor()),
-        tool_manager=kwargs.get("tool_manager", FakeToolManager()),
+        tool_mediator=kwargs.get("tool_mediator", FakeToolMediator(tool_manager)),
     )
 
 
@@ -414,7 +428,7 @@ def test_adapter_stream_surfaces_router_error():
 def test_adapter_execute_tool_success():
     adapter = make_adapter()
     result = asyncio_run(adapter.execute_tool("ls", {"dir": "."}))
-    assert result == {"success": True, "result": "ran ls"}
+    assert result == "ran ls"
 
 
 def test_adapter_execute_tool_failure():

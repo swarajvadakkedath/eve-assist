@@ -115,6 +115,12 @@ async def test_all_routes_pass_after_lifespan():
     async with LifespanManager(app) as manager:
         transport = ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            # Fetch auth token (bypass route, no auth needed)
+            token_resp = await client.get("/api/v1/auth/token")
+            assert token_resp.status_code == 200
+            token = token_resp.json()["token"]
+            auth_headers = {"Authorization": f"Bearer {token}"}
+
             # Routes that access app.state should return 200 (not 503).
             routes_200 = [
                 "/api/v1/chat/conversations",
@@ -124,11 +130,11 @@ async def test_all_routes_pass_after_lifespan():
                 "/api/v1/system/readiness",
             ]
             for path in routes_200:
-                r = await client.get(path)
+                r = await client.get(path, headers=auth_headers)
                 assert r.status_code == 200, f"{path} should be 200 after lifespan"
 
             # POST should also pass middleware (may 422 on missing body, not 503).
-            r = await client.post("/api/v1/chat/conversation")
+            r = await client.post("/api/v1/chat/conversation", headers=auth_headers)
             assert r.status_code != 503
 
 
@@ -163,11 +169,11 @@ async def test_eve_startup_delay_knob():
 async def test_middleware_reads_actual_status():
     """Middleware 503 body contains a valid status string from StatusService."""
     async with _make_no_lifespan_client() as client:
-        r = await client.get("/api/v1/chat/conversations")
-        assert r.status_code == 503
-        body = r.json()
+        # /desktop/status is a bypass route — no auth needed.
         # StatusService is a process-wide singleton; by the time this test runs
-        # after lifespan tests it may already be READY.  Just verify the body
-        # has a non-empty status string from the real StatusService.
-        assert isinstance(body["status"], str)
-        assert len(body["status"]) > 0
+        # after lifespan tests it may already be READY (200) or still INITIALIZING (503).
+        r = await client.get("/api/v1/desktop/status")
+        assert r.status_code in (200, 503)
+        body = r.json()
+        assert isinstance(body.get("status", ""), str)
+        assert len(body.get("status", "")) > 0

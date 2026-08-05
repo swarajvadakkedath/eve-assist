@@ -3,7 +3,7 @@
 from typing import Any, AsyncIterator
 
 from aios.conversation.manager import ConversationManager
-from aios.conversation.models import Conversation, Message
+from aios.conversation.models import Conversation, Message, MessageRole
 from aios.conversation.interfaces import IConversationService
 from aios.conversation.exceptions import ConversationNotFoundError, AIProviderError
 from aios.core.adapters.base import sanitize_error
@@ -18,9 +18,11 @@ class ConversationService(IConversationService):
         self,
         manager: ConversationManager,
         event_bus: Any | None = None,
+        pipeline: Any | None = None,
     ):
         self._manager = manager
         self._event_bus = event_bus
+        self._pipeline = pipeline
 
     async def create_conversation(
         self,
@@ -65,6 +67,18 @@ class ConversationService(IConversationService):
 
     async def send_message(self, conversation_id: str, content: str) -> Message:
         try:
+            if self._pipeline is not None:
+                result = await self._pipeline.process_message(
+                    conversation_id, content, source="chat"
+                )
+                if result.get("error"):
+                    raise AIProviderError(result["error"])
+                response = await self._manager.get_history(conversation_id, limit=1)
+                return response[-1] if response else Message(
+                    conversation_id=conversation_id,
+                    role=MessageRole.ASSISTANT,
+                    content=result.get("response", ""),
+                )
             response = await self._manager.send_message(conversation_id, content)
             if self._event_bus:
                 await self._event_bus.publish("message:sent", {
@@ -99,6 +113,12 @@ class ConversationService(IConversationService):
     @trace_async_gen
     async def stream_message(self, conversation_id: str, content: str) -> AsyncIterator[dict]:
         try:
+            if self._pipeline is not None:
+                async for event in self._pipeline.stream_message(
+                    conversation_id, content, source="chat"
+                ):
+                    yield event
+                return
             async for event in self._manager.stream_message(conversation_id, content):
                 yield event
         except ConversationNotFoundError:

@@ -33,7 +33,6 @@ async def _run_command(params: dict, event_bus: EventBus | None = None) -> ToolR
         cwd = params.get("cwd")
         env = params.get("env")
         timeout = params.get("timeout", 0)
-        shell = params.get("shell", False)
 
         if not command:
             return ToolResult(success=False, error="No command provided")
@@ -41,24 +40,15 @@ async def _run_command(params: dict, event_bus: EventBus | None = None) -> ToolR
         cmd_id = _next_cmd_id()
         proc_env = _format_env(env)
 
-        if shell:
-            proc = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-                env=proc_env,
-            )
-        else:
-            import shlex
-            args = shlex.split(command)
-            proc = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-                env=proc_env,
-            )
+        import shlex
+        args = shlex.split(command)
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+            env=proc_env,
+        )
 
         _running_commands[cmd_id] = {
             "proc": proc,
@@ -128,7 +118,6 @@ async def _stream_output(params: dict, event_bus: EventBus | None = None) -> Too
         cwd = params.get("cwd")
         env = params.get("env")
         timeout = params.get("timeout", 0)
-        shell = params.get("shell", False)
         chunk_size = params.get("chunk_size", 4096)
 
         if not command:
@@ -137,24 +126,15 @@ async def _stream_output(params: dict, event_bus: EventBus | None = None) -> Too
         cmd_id = _next_cmd_id()
         proc_env = _format_env(env)
 
-        if shell:
-            proc = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-                env=proc_env,
-            )
-        else:
-            import shlex
-            args = shlex.split(command)
-            proc = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-                env=proc_env,
-            )
+        import shlex
+        args = shlex.split(command)
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+            env=proc_env,
+        )
 
         _running_commands[cmd_id] = {
             "proc": proc, "command": command, "started_at": datetime.now(timezone.utc),

@@ -319,7 +319,11 @@ function ConversationView({
           )}
           renderLoading={() => <ConversationLoadingState />}
           renderError={(error) => (
-            <ConversationErrorState error={error} onRetry={retryLast} />
+            <ConversationErrorState
+              error={error}
+              onRetry={retryLast}
+              onViewRecovery={() => window.dispatchEvent(new CustomEvent("aios:aio-tab", { detail: "recovery" }))}
+            />
           )}
           onInspectSession={handleInspectSession}
         />

@@ -108,12 +108,9 @@ class ProcessService:
         if not command or not command.strip():
             raise ProcessError("Command must not be empty")
         try:
-            if shell:
-                proc = subprocess.Popen(command, shell=True)
-            else:
-                import shlex
-                args = shlex.split(command)
-                proc = subprocess.Popen(args, shell=False)
+            import shlex
+            args = shlex.split(command)
+            proc = subprocess.Popen(args, shell=False)
             return proc.pid
         except OSError as e:
             raise ProcessError(f"Failed to start process: {command}: {e}")

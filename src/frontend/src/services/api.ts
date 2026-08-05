@@ -11,9 +11,27 @@ const BYPASS_PATHS = new Set([
   "/system/readiness",
   "/desktop/status",
   "/desktop/status/history",
+  "/auth/token",
 ]);
 
 export { API_BASE };
+
+let _authToken: string | null = null;
+
+async function getAuthToken(): Promise<string | null> {
+  if (_authToken) return _authToken;
+  try {
+    const res = await fetch(`${API_BASE}/auth/token`);
+    if (res.ok) {
+      const data = await res.json();
+      _authToken = data.token;
+      return _authToken;
+    }
+  } catch {
+    // Token fetch failed — server may not require auth yet
+  }
+  return null;
+}
 
 async function gateFor(path: string): Promise<void> {
   if (!BYPASS_PATHS.has(path)) {
@@ -23,13 +41,21 @@ async function gateFor(path: string): Promise<void> {
 
 export async function fetchApi(path: string, init?: RequestInit): Promise<Response> {
   await gateFor(path);
-  return fetch(`${API_BASE}${path}`, init);
+  const token = await getAuthToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (init?.headers) Object.assign(headers, init.headers);
+  return fetch(`${API_BASE}${path}`, { ...init, headers });
 }
 
 async function request<T = any>(path: string, options?: RequestInit): Promise<T> {
   await gateFor(path);
+  const token = await getAuthToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (options?.headers) Object.assign(headers, options.headers);
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers,
     ...options,
   });
   if (!res.ok) {
