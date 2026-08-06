@@ -356,3 +356,54 @@ class TestRegeneratePropagation:
         assert getattr(req, "model", None) == "gpt-4o"
         assert getattr(req, "temperature", None) == 0.5
         assert getattr(req, "max_tokens", None) == 16384
+
+
+class TestSendMemoryUpdate:
+    """Regression: send_message must pass assistant response content to
+    _safe_update_memory, not reference an out-of-scope ai_response variable."""
+
+    @pytest.mark.asyncio
+    async def test_send_message_no_name_error(self, manager):
+        """send_message must not raise NameError on ai_response."""
+        conv = await manager.create_conversation(title="NameError Test")
+        response = await manager.send_message(conv.id, "Hello")
+        assert response.role == MessageRole.ASSISTANT
+        assert response.content == "This is a test response"
+
+    @pytest.mark.asyncio
+    async def test_safe_update_memory_receives_response_content(self, manager):
+        """_safe_update_memory must receive the AI response content."""
+        update_calls = []
+        original = manager._safe_update_memory
+
+        async def capturing_update(user_input, response, conversation_id):
+            update_calls.append({"user_input": user_input, "response": response})
+            await original(user_input, response, conversation_id)
+
+        manager._safe_update_memory = capturing_update
+        conv = await manager.create_conversation(title="Memory Test")
+        await manager.send_message(conv.id, "Hello")
+
+        assert len(update_calls) == 1
+        assert update_calls[0]["user_input"] == "Hello"
+        assert update_calls[0]["response"] == "This is a test response"
+
+    @pytest.mark.asyncio
+    async def test_conversation_history_unchanged(self, manager):
+        """send_message stores correct messages in history."""
+        conv = await manager.create_conversation(title="History Test")
+        await manager.send_message(conv.id, "Hello")
+        history = await manager.get_history(conv.id)
+
+        roles = [m.role for m in history]
+        assert MessageRole.USER in roles
+        assert MessageRole.ASSISTANT in roles
+
+    @pytest.mark.asyncio
+    async def test_stream_message_still_works(self, manager):
+        """Streaming path remains unaffected."""
+        conv = await manager.create_conversation(title="Stream Test")
+        events = []
+        async for event in manager.stream_message(conv.id, "Hello"):
+            events.append(event)
+        assert len(events) > 0

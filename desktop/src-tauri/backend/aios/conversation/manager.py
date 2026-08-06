@@ -494,7 +494,7 @@ class ConversationManager(IConversationService):
             except Exception as e:
                 logger.error("conversation.repository_add_response_failed", error=str(e))
 
-        await self._safe_update_memory(content, ai_response.content, conversation_id)
+        await self._safe_update_memory(content, full_content, conversation_id)
         conv.updated_at = datetime.now(timezone.utc)
         conv.message_count = len(self._messages.get(conversation_id, [])) // 2
 
