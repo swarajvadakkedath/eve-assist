@@ -103,3 +103,8 @@
 - `EVE_AI_ECOSYSTEM_REPORT.md`: full ecosystem report for v1.2.2.
 - `EVE_V1.2.3_CHAT_TOOL_AND_RETRY_REPORT.md`: investigation report for v1.2.3 defects.
 - `AI_ERROR_INTELLIGENCE_ARCHITECTURE.md`: error intelligence system architecture.
+- `start_eve.bat`/`start_eve.ps1`: one-click dev launcher (double-click → backend `python -m aios.main` on 8456, health-wait on `/api/v1/system/health`, frontend `npm run dev` on 5173, open browser, summary). Auto-detects Python ≥3.12 (skips the 3.10 `.venv`, falls back to `py -3.14`); persists stable `EVE_API_TOKEN` to `config/.eve_dev_token` (default `eve-development-token`, never regenerated); writes `.eve_pids.json`; supports `-OnlyBackend`/`-OnlyFrontend`/`-NoBrowser`.
+- `stop_eve.bat`/`stop_eve.ps1`: graceful teardown — tree-kills tracked launcher PIDs, then any port 8456/5173 holders, then sweeps stray `aios.main`/`vite` processes; removes PID file (no orphans).
+- `.vscode/tasks.json`: VS Code tasks `Start EVE` (Ctrl+Shift+B default), `Start Backend`, `Start Frontend`, `Stop EVE`.
+- `STARTUP_GUIDE.md`: launcher sequence, backend/frontend commands, env vars, health-check logic, troubleshooting, expected ~15–25 s startup.
+- Launcher facts: real health route is `/api/v1/system/health` (no `/health`); `.venv` is Python 3.10.6 (too old — launcher uses system Python 3.14); frontend package manager detected pnpm on this machine.

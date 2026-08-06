@@ -56,6 +56,7 @@ from aios.conversation.search import ConversationSearch, SearchResult
 from aios.conversation.branching import BranchManager
 from aios.conversation.analytics import AnalyticsTracker, ConversationAnalytics
 from aios.conversation.export import ConversationExporter
+from aios.mediation.tools import ToolMediator, ToolCallRequest
 from aios.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -464,22 +465,9 @@ class ConversationManager(IConversationService):
         )
 
         try:
-            req = type("AIRequest", (), {
-                "messages": llm_messages,
-                "stream": False,
-                "max_tokens": conv.max_tokens or 4096,
-                "temperature": conv.temperature or 0.7,
-            })()
-            if conv.provider_id:
-                req.provider_id = conv.provider_id
-            if conv.model_id:
-                req.model = conv.model_id
-            from aios.core.smart_router import RoutingPolicy
-            if conv.routing_policy:
-                policy = RoutingPolicy(conv.routing_policy)
-            else:
-                policy = RoutingPolicy.STRICT if conv.provider_id else RoutingPolicy.AUTO
-            ai_response = await self._ai_router.route(req, routing_policy=policy)
+            full_content, tokens_used = await self._run_tool_loop(
+                conversation_id, llm_messages, conv,
+            )
         except Exception as e:
             raise AIProviderError(f"AI provider failed: {e}", original=e)
 
@@ -488,8 +476,8 @@ class ConversationManager(IConversationService):
         assistant_msg = Message(
             conversation_id=conversation_id,
             role=MessageRole.ASSISTANT,
-            content=ai_response.content,
-            tokens_used=getattr(ai_response, "tokens_used", 0) or getattr(ai_response, "tokens_total", 0),
+            content=full_content,
+            tokens_used=tokens_used,
             latency_ms=latency_ms,
             planning_context=PlanningContext(
                 intent=intent,
@@ -608,6 +596,8 @@ class ConversationManager(IConversationService):
                 "max_tokens": conv.max_tokens or 4096,
                 "temperature": conv.temperature or 0.7,
             })()
+            req.tools = await self._build_tool_definitions()
+            req.tool_choice = "auto"
             if conv.provider_id:
                 req.provider_id = conv.provider_id
             if conv.model_id:
@@ -829,6 +819,164 @@ class ConversationManager(IConversationService):
             return await self._get_available_tools()
         except Exception:
             return []
+
+    async def _build_tool_definitions(self) -> list[dict]:
+        """Build OpenAI-format ``tools`` from the existing tool registry.
+
+        Reuses the ToolManager registry (via ``_get_available_tools``) — no
+        separate registry is maintained here. Returns an empty list when no
+        tools are registered so providers never receive a stale schema.
+        """
+        tools = await self._get_available_tools()
+        if not tools:
+            return []
+        definitions = []
+        for tool in tools:
+            if isinstance(tool, dict):
+                tool_id = tool.get("id") or tool.get("name", "")
+                description = tool.get("description", "")
+                parameters = tool.get("parameters") or {}
+            else:
+                tool_id = getattr(tool, "id", "") or getattr(tool, "name", "")
+                description = getattr(tool, "description", "")
+                parameters = getattr(tool, "parameters", None) or {}
+            if not tool_id:
+                continue
+            definitions.append({
+                "type": "function",
+                "function": {
+                    "name": tool_id,
+                    "description": description or "",
+                    "parameters": parameters or {"type": "object", "properties": {}},
+                },
+            })
+        return definitions
+
+    # ── LLM Tool Calling Loop ───────────────────────────────────────
+
+    async def _run_tool_loop(
+        self,
+        conversation_id: str,
+        llm_messages: list[dict],
+        conv: Conversation,
+        *,
+        max_iterations: int = 10,
+    ) -> tuple[str, int]:
+        """Execute LLM tool-calling loop until the model stops requesting tools.
+
+        Returns (final_content, total_tokens_used).
+        """
+        import json as _json
+        tool_definitions = await self._build_tool_definitions()
+        total_tokens = 0
+        for _ in range(max_iterations):
+            try:
+                req = type("AIRequest", (), {
+                    "messages": llm_messages,
+                    "stream": False,
+                    "max_tokens": conv.max_tokens or 4096,
+                    "temperature": conv.temperature or 0.7,
+                })()
+                req.tools = tool_definitions
+                req.tool_choice = "auto"
+                if conv.provider_id:
+                    req.provider_id = conv.provider_id
+                if conv.model_id:
+                    req.model = conv.model_id
+                from aios.core.smart_router import RoutingPolicy
+                if conv.routing_policy:
+                    policy = RoutingPolicy(conv.routing_policy)
+                else:
+                    policy = RoutingPolicy.STRICT if conv.provider_id else RoutingPolicy.AUTO
+                ai_response = await self._ai_router.route(req, routing_policy=policy)
+            except Exception as e:
+                raise AIProviderError(f"AI provider failed: {e}", original=e)
+
+            content = ai_response.content or ""
+            tool_calls_raw = ai_response.tool_calls or []
+            total_tokens += getattr(ai_response, "tokens_total", 0) or 0
+
+            if not tool_calls_raw:
+                return content, total_tokens
+
+            # Build assistant message with tool_calls
+            tool_calls_parsed = []
+            for tc in tool_calls_raw:
+                func = tc.get("function", {})
+                tool_calls_parsed.append(ToolCall(
+                    tool_name=func.get("name", tc.get("id", "")),
+                    capability=func.get("name", ""),
+                    parameters=_json.loads(func.get("arguments", "{}")) if isinstance(func.get("arguments"), str) else (func.get("arguments") or {}),
+                ))
+
+            assistant_msg = Message(
+                conversation_id=conversation_id,
+                role=MessageRole.ASSISTANT,
+                content=content,
+                tool_calls=tool_calls_parsed,
+            )
+            self._add_message(conversation_id, assistant_msg)
+            llm_messages.append({
+                "role": "assistant",
+                "content": content,
+                "tool_calls": [
+                    {
+                        "id": tc.tool_name,
+                        "type": "function",
+                        "function": {
+                            "name": tc.capability,
+                            "arguments": _json.dumps(tc.parameters),
+                        },
+                    }
+                    for tc in tool_calls_parsed
+                ],
+            })
+
+            # Execute each tool through ToolMediator
+            tool_results = []
+            for tc in tool_calls_parsed:
+                request = ToolCallRequest(
+                    tool_id=tc.tool_name,
+                    params=tc.parameters,
+                    source="llm",
+                    conversation_id=conversation_id,
+                )
+                if self._tool_mediator is not None:
+                    result = await self._tool_mediator.execute(request)
+                    tool_result_data = result.data if result.success else {"error": result.error}
+                    tool_results.append({
+                        "tool_name": tc.tool_name,
+                        "result": tool_result_data,
+                    })
+                elif self._tool_manager is not None:
+                    try:
+                        raw = await self._tool_manager.execute(tc.tool_name, tc.parameters)
+                        tool_result_data = getattr(raw, "result", raw)
+                        tool_results.append({"tool_name": tc.tool_name, "result": tool_result_data})
+                    except Exception as e:
+                        tool_results.append({"tool_name": tc.tool_name, "result": {"error": str(e)}})
+                else:
+                    tool_results.append({"tool_name": tc.tool_name, "result": {"error": "Tool system not available"}})
+
+            # Create a tool-results message
+            tool_result_msg = Message(
+                conversation_id=conversation_id,
+                role=MessageRole.USER,
+                content="",
+                tool_results=tool_results,
+            )
+            self._add_message(conversation_id, tool_result_msg)
+
+            # Append tool results to LLM messages for next iteration
+            for tr in tool_results:
+                llm_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tr.get("tool_name", ""),
+                    "content": _json.dumps(tr.get("result", {})) if not isinstance(tr.get("result"), str) else tr.get("result", ""),
+                })
+
+        # If we exhausted iterations, return whatever content we have
+        return "", total_tokens
 
     async def _update_memory(self, user_input: str, response: str, conversation_id: str) -> None:
         if self._memory_mediator is not None:

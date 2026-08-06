@@ -592,6 +592,7 @@ class SmartRouter:
             temperature=getattr(request, "temperature", 0.7),
             top_p=getattr(request, "top_p", 1.0),
             tools=getattr(request, "tools", None),
+            tool_choice=getattr(request, "tool_choice", None),
             stream=getattr(request, "stream", False),
             stop=getattr(request, "stop", None),
             provider_id=getattr(request, "provider_id", None),

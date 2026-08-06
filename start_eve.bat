@@ -1,45 +1,24 @@
 @echo off
-REM AIOS/Eve Launcher — starts backend and frontend with one command.
-REM Run from the project root.
+REM ============================================================
+REM  EVE One-Click Development Launcher - Start
+REM  Double-click to start backend + frontend + browser.
+REM  Logic lives in start_eve.ps1 (same directory).
+REM ============================================================
+setlocal
+chcp 65001 >nul
+cd /d "%~dp0"
 
-setlocal enabledelayedexpansion
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_eve.ps1"
+set "EXIT_CODE=%ERRORLEVEL%"
 
-REM Determine project root (directory containing this script)
-set "PROJECT_ROOT=%~dp0"
-cd /d "%PROJECT_ROOT%"
-
-REM Ensure UTF-8 for Unicode banner characters
-set "PYTHONIOENCODING=utf-8"
-
-REM Ensure src/backend is on PYTHONPATH so python -m aios can find the package
-set "BACKEND_DIR=%PROJECT_ROOT%src\backend"
-if defined PYTHONPATH (
-    set "PYTHONPATH=%BACKEND_DIR%;%PYTHONPATH%"
+echo.
+if "%EXIT_CODE%"=="0" (
+    echo [OK] EVE started successfully.
 ) else (
-    set "PYTHONPATH=%BACKEND_DIR%"
+    echo [ERROR] EVE failed to start (exit code %EXIT_CODE%).
+    echo        Check the messages above.
 )
-
-REM Determine Python command — prefer py launcher, fallback to python
-where py >nul 2>nul
-if %ERRORLEVEL% equ 0 (
-    set "PY_CMD=py -3.12"
-) else (
-    set "PY_CMD=python"
-)
-
-REM Check Python
-%PY_CMD% -c "import sys; assert sys.version_info >= (3, 12), 'Python 3.12+ required'" 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo Error: Python ^>= 3.12 required.
-    exit /b 1
-)
-
-REM Check Node
-where node >nul 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo Error: Node.js not found. Install Node.js ^>= 18.
-    exit /b 1
-)
-
-%PY_CMD% -m aios
-exit /b %ERRORLEVEL%
+echo.
+pause
+endlocal
+exit /b %EXIT_CODE%

@@ -596,6 +596,8 @@ class ConversationManager(IConversationService):
                 "max_tokens": conv.max_tokens or 4096,
                 "temperature": conv.temperature or 0.7,
             })()
+            req.tools = await self._build_tool_definitions()
+            req.tool_choice = "auto"
             if conv.provider_id:
                 req.provider_id = conv.provider_id
             if conv.model_id:
@@ -818,6 +820,38 @@ class ConversationManager(IConversationService):
         except Exception:
             return []
 
+    async def _build_tool_definitions(self) -> list[dict]:
+        """Build OpenAI-format ``tools`` from the existing tool registry.
+
+        Reuses the ToolManager registry (via ``_get_available_tools``) — no
+        separate registry is maintained here. Returns an empty list when no
+        tools are registered so providers never receive a stale schema.
+        """
+        tools = await self._get_available_tools()
+        if not tools:
+            return []
+        definitions = []
+        for tool in tools:
+            if isinstance(tool, dict):
+                tool_id = tool.get("id") or tool.get("name", "")
+                description = tool.get("description", "")
+                parameters = tool.get("parameters") or {}
+            else:
+                tool_id = getattr(tool, "id", "") or getattr(tool, "name", "")
+                description = getattr(tool, "description", "")
+                parameters = getattr(tool, "parameters", None) or {}
+            if not tool_id:
+                continue
+            definitions.append({
+                "type": "function",
+                "function": {
+                    "name": tool_id,
+                    "description": description or "",
+                    "parameters": parameters or {"type": "object", "properties": {}},
+                },
+            })
+        return definitions
+
     # ── LLM Tool Calling Loop ───────────────────────────────────────
 
     async def _run_tool_loop(
@@ -833,6 +867,7 @@ class ConversationManager(IConversationService):
         Returns (final_content, total_tokens_used).
         """
         import json as _json
+        tool_definitions = await self._build_tool_definitions()
         total_tokens = 0
         for _ in range(max_iterations):
             try:
@@ -842,6 +877,8 @@ class ConversationManager(IConversationService):
                     "max_tokens": conv.max_tokens or 4096,
                     "temperature": conv.temperature or 0.7,
                 })()
+                req.tools = tool_definitions
+                req.tool_choice = "auto"
                 if conv.provider_id:
                     req.provider_id = conv.provider_id
                 if conv.model_id:

@@ -31,8 +31,12 @@ Thumbs.db
 .env.local
 
 # Config (user-specific)
-config/development.yaml
-config/production.yaml
+config/development.yaml 
+config/production.yaml  
+
+# Launcher runtime files
+.eve_pids.json
+config/.eve_dev_token
 
 # Database
 *.db
